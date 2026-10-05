@@ -1,0 +1,8 @@
+# Pocket Notes categories, one per line:  Name | what the model sees | flags
+# flags: check (checklist with [ ] / [x]), phone (phone numbers, emails), time (clock times)
+Todo | a task to do | check
+Shopping | something to buy | check
+Ideas | an idea
+Events | an appointment | time
+Contacts | a phone number or email | phone
+Notes | something to remember

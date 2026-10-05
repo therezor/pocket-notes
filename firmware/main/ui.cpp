@@ -1,394 +1,390 @@
 #include "ui.h"
-#include "port.h"
-#include <M5Unified.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-static auto& D() { return M5.Display; }
+#include "port.h"
 
-void ChatUI::chatFont() { D().setFont(&fonts::Font2); D().setTextSize(1); }
-void ChatUI::uiFont()   { D().setFont(&fonts::Font0); D().setTextSize(1); }
+namespace ui {
 
-uint16_t ChatUI::colorFor(uint8_t code) {
+Metrics   M;
+M5Canvas* cv = nullptr;
+
+static FontChoice s_font = FONT_NORMAL;
+
+void setFont(FontChoice f) {
+  s_font = f;
+  // Both are fixed-width, which the char-count layout math relies on.
+  if (f == FONT_COMPACT) cv->setFont(&fonts::Font0);          // 6x8
+  else                   cv->setFont(&fonts::AsciiFont8x16);  // 8x16
+
+  cv->setTextSize(1);
+  M = layoutFor(M.w, M.h, cv->textWidth("M"), cv->fontHeight());
+  cv->setTextSize(M.scale);
+}
+
+void begin(M5Canvas* canvas, int w, int h, FontChoice f) {
+  cv  = canvas;
+  M.w = w;
+  M.h = h;
+  setFont(f);
+}
+
+int rowsFor(int y, int rowH) { return rowsIn(M, y, rowH); }
+
+int charsFor(int px) {
+  int n = px / M.charW;
+  return n < 1 ? 1 : n;
+}
+
+// -----------------------------------------------------------------------------
+//  Frame + chrome
+// -----------------------------------------------------------------------------
+
+void beginFrame() {
+  cv->fillSprite(C_BG);
+  cv->setTextSize(M.scale);
+  cv->setTextDatum(textdatum_t::top_left);
+}
+
+void endFrame() { cv->pushSprite(0, 0); }
+
+void header(const char* title, const char* right, uint16_t rightCol) {
+  cv->fillRect(0, 0, M.w, M.headerH, C_HDR_BG);
+  cv->setTextSize(M.scale);
+  cv->setTextDatum(textdatum_t::middle_left);
+  cv->setTextColor(C_HDR_FG, C_HDR_BG);
+  cv->drawString(title, M.pad * 2, M.headerH / 2);
+  if (right) {
+    cv->setTextDatum(textdatum_t::middle_right);
+    cv->setTextColor(rightCol, C_HDR_BG);
+    cv->drawString(right, M.w - M.pad * 2, M.headerH / 2);
+  }
+  cv->setTextDatum(textdatum_t::top_left);
+}
+
+void footer(const char* hint) {
+  int y = M.h - M.footerH;
+  cv->fillRect(0, y, M.w, M.footerH, C_HDR_BG);
+  cv->setTextSize(M.scale);
+  cv->setTextColor(C_DIM, C_HDR_BG);
+  cv->setTextDatum(textdatum_t::middle_left);
+  char buf[96];
+  clip(buf, sizeof(buf), hint, charsFor(M.w - M.pad * 4));
+  cv->setTextDatum(textdatum_t::top_left);
+  text(M.pad * 2, y + (M.footerH - M.lineH) / 2, buf, C_DIM, C_HDR_BG);
+}
+
+void footerf(const char* fmt, ...) {
+  char buf[96];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  footer(buf);
+}
+
+// -----------------------------------------------------------------------------
+//  Text
+// -----------------------------------------------------------------------------
+
+static bool isArrow(char c) {
+  return c == GLYPH_UP || c == GLYPH_DOWN || c == GLYPH_LEFT || c == GLYPH_RIGHT;
+}
+
+static void drawArrow(int x, int y, char code, uint16_t fg, uint16_t bg) {
+  const int w = M.charW, h = M.lineH;
+  cv->fillRect(x, y, w, h, bg);
+  const int cx = x + w / 2, cy = y + h / 2;
+  int r = (w < h ? w : h) / 2 - M.scale;
+  if (r < 2) r = 2;
   switch (code) {
-    case 1:  return C_USER;
-    case 3:  return C_BOT;
-    default: return C_TEXT;
-  }
-}
-uint8_t ChatUI::codeFor(uint16_t color) {
-  if (color == C_USER) return 1;
-  if (color == C_BOT)  return 3;
-  return 2;
-}
-
-void ChatUI::begin() {
-  D().setRotation(1);
-  D().fillScreen(C_BG);
-  D().setTextWrap(false);
-  chat_y_     = CHAT_Y0;
-  cursor_x_   = MARGIN;
-  line_count_ = 0;
-  cur_        = "";
-  cur_color_  = 0;
-  offset_     = 0;
-  drawStatusBar("Pocket Inbox", C_DIM);
-  drawInputBox();
-}
-
-// ---------- Status bar (top) ----------
-
-void ChatUI::drawStatusBar(const char* s, uint16_t color) {
-  D().fillRect(0, 0, W, STATUS_H, C_BAR);
-  D().drawFastHLine(0, STATUS_H, W, C_DIV);
-  uiFont();
-  D().setTextColor(color, C_BAR);
-  D().setCursor(4, 2);
-  D().print(s);
-}
-
-void ChatUI::status(const char* s) { drawStatusBar(s, C_STATUS); }
-
-void ChatUI::statusf(const char* fmt, ...) {
-  char buf[96]; va_list ap; va_start(ap, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
-  status(buf);
-}
-
-void ChatUI::tickGenerating(int tokens) {
-  uint32_t now = millis();
-  if (now - spin_last_ < 200) return;        // ~5 fps is enough for a spinner
-  spin_last_ = now;
-  spin_ = (spin_ + 1) & 3;
-  static const char frames[] = "|/-\\";
-  char buf[48];
-  if (tokens > 0)
-    snprintf(buf, sizeof(buf), "%c generating...  %d tok", frames[spin_], tokens);
-  else
-    snprintf(buf, sizeof(buf), "%c thinking...", frames[spin_]);
-  drawStatusBar(buf, C_BOT);
-}
-
-// ---------- Input box (bottom) ----------
-
-void ChatUI::drawInputBox() {
-  D().fillRect(0, INPUT_Y, W, INPUT_H, C_BAR);
-  D().drawFastHLine(0, INPUT_Y, W, C_DIV);
-  chatFont();
-  D().setTextColor(C_USER, C_BAR);
-  D().setCursor(4, INPUT_Y + 2);
-  D().print("> ");
-  int x0 = D().getCursorX();
-
-  // Show the tail of the input if it is wider than the box, so the cursor
-  // (= what the user is typing right now) is always visible.
-  const char* s = input_.c_str();
-  int start = 0;
-  const int avail = W - x0 - 12;             // room for the caret block
-  while (s[start] && D().textWidth(s + start) > avail) start++;
-
-  D().setCursor(x0, INPUT_Y + 2);
-  if (start > 0) {                           // clipped on the left
-    D().setTextColor(C_DIM, C_BAR);
-    D().print("<");
-    D().setTextColor(C_TEXT, C_BAR);
-    D().print(s + start + 1);                // +1: make room for the '<'
-  } else {
-    D().setTextColor(C_TEXT, C_BAR);
-    D().print(s);
-  }
-  D().fillRect(D().getCursorX() + 1, INPUT_Y + 4, 6, 12, C_USER);  // caret
-}
-
-// ---------- Chat area / scrollback ----------
-
-void ChatUI::commitLine() {
-  lines_[line_count_ % MAX_LINES] = cur_;
-  line_count_++;
-  cur_ = "";
-  cur_color_ = 0;
-}
-
-// Draw one stored line (text with inline color codes) at pixel row y.
-void ChatUI::drawLine(const std::string& l, int y) {
-  int x = MARGIN;
-  uint16_t col = C_TEXT;
-  std::string seg;
-  auto flush = [&]() {
-    if (!seg.length()) return;
-    D().setTextColor(col, C_BG);
-    D().setCursor(x, y);
-    D().print(seg.c_str());
-    x += D().textWidth(seg.c_str());
-    seg = "";
-  };
-  for (size_t i = 0; i < l.length(); i++) {
-    char c = l[i];
-    if ((uint8_t)c < 8) { flush(); col = colorFor((uint8_t)c); }
-    else seg += c;
-  }
-  flush();
-}
-
-// Repaint the whole chat region from the scrollback buffer.
-void ChatUI::redrawChat() {
-  chatFont();
-  D().fillRect(0, CHAT_Y0, W, INPUT_Y - CHAT_Y0, C_BG);
-  int total  = line_count_ + 1;                       // +1 = live line (cur_)
-  int oldest = line_count_ > MAX_LINES ? line_count_ - MAX_LINES : 0;
-  int end    = total - 1 - offset_;
-  int start  = end - VISIBLE + 1;
-  if (start < oldest) start = oldest;
-  int y = CHAT_Y0;
-  for (int idx = start; idx <= end; idx++, y += LINE_H) {
-    if (idx == line_count_) drawLine(cur_, y);
-    else                    drawLine(lines_[idx % MAX_LINES], y);
-  }
-  if (offset_ == 0) {                                 // restore live cursor
-    chat_y_ = y - LINE_H;
-    int x = MARGIN;
-    std::string seg;
-    for (size_t i = 0; i < cur_.length(); i++) {
-      char c = cur_[i];
-      if ((uint8_t)c < 8) { x += D().textWidth(seg.c_str()); seg = ""; }
-      else seg += c;
-    }
-    cursor_x_ = x + D().textWidth(seg.c_str());
+    case GLYPH_UP:    cv->fillTriangle(cx, cy - r, cx - r, cy + r, cx + r, cy + r, fg); break;
+    case GLYPH_DOWN:  cv->fillTriangle(cx, cy + r, cx - r, cy - r, cx + r, cy - r, fg); break;
+    case GLYPH_LEFT:  cv->fillTriangle(cx - r, cy, cx + r, cy - r, cx + r, cy + r, fg); break;
+    case GLYPH_RIGHT: cv->fillTriangle(cx + r, cy, cx - r, cy - r, cx - r, cy + r, fg); break;
   }
 }
 
-void ChatUI::snapToLive() {
-  if (offset_ == 0) return;
-  offset_ = 0;
-  redrawChat();
-}
+void text(int x, int y, const char* s, uint16_t fg, uint16_t bg) {
+  cv->setTextSize(M.scale);
+  cv->setTextDatum(textdatum_t::top_left);
+  cv->setTextColor(fg, bg);
 
-void ChatUI::scrollChat(int lines) {
-  int total   = line_count_ + 1;
-  int oldest  = line_count_ > MAX_LINES ? line_count_ - MAX_LINES : 0;
-  int max_off = total - VISIBLE - oldest;
-  if (max_off < 0) max_off = 0;
-  int no = offset_ + lines;
-  if (no < 0) no = 0;
-  if (no > max_off) no = max_off;
-  if (no == offset_) return;
-  offset_ = no;
-  redrawChat();
-  if (offset_ > 0) statusf("history -%d    fn+. = back to latest", offset_);
-  else             drawStatusBar("Pocket Inbox", C_DIM);
-}
+  bool any = false;
+  for (const char* p = s; *p; ++p) if (isArrow(*p)) { any = true; break; }
+  if (!any) { cv->drawString(s, x, y); return; }
 
-void ChatUI::newline() {
-  snapToLive();
-  commitLine();
-  chat_y_  += LINE_H;
-  cursor_x_ = MARGIN;
-  const int region_h = INPUT_Y - CHAT_Y0;
-  while (chat_y_ + LINE_H > INPUT_Y - 1) {   // scroll chat region up one line
-    D().copyRect(0, CHAT_Y0, W, region_h - LINE_H, 0, CHAT_Y0 + LINE_H);
-    D().fillRect(0, CHAT_Y0 + region_h - LINE_H, W, LINE_H, C_BG);
-    chat_y_ -= LINE_H;
-  }
-}
-
-void ChatUI::writeText(const char* s, uint16_t color) {
-  snapToLive();
-  chatFont();
-  D().setTextColor(color, C_BG);
-  const uint8_t code = codeFor(color);
-  auto emit = [&](const char* t) {           // record into the live line
-    if (cur_color_ != code) { cur_ += (char)code; cur_color_ = code; }
-    cur_ += t;
-  };
-  const int maxw = W - MARGIN;
-  const char* p = s;
-  char buf[48];
-  while (*p) {
-    if (*p == '\n') { newline(); p++; continue; }
-    // Take one word (or a single space) so we can wrap at word boundaries.
-    const char* start = p;
-    if (*p == ' ') p++;
-    else while (*p && *p != ' ' && *p != '\n') p++;
-    int len = p - start;
-    if (len > (int)sizeof(buf) - 1) { len = sizeof(buf) - 1; p = start + len; }
-    memcpy(buf, start, len); buf[len] = 0;
-
-    int wpx = D().textWidth(buf);
-    if (cursor_x_ + wpx > maxw) {
-      if (MARGIN + wpx > maxw) {             // word longer than a whole line
-        for (int i = 0; i < len; i++) {
-          char t[2] = {buf[i], 0};
-          int cw = D().textWidth(t);
-          if (cursor_x_ + cw > maxw) newline();
-          D().setCursor(cursor_x_, chat_y_);
-          D().print(t);
-          emit(t);
-          cursor_x_ += cw;
-        }
-        continue;
+  // Mixed run: the fonts are fixed-width, so each cell is exactly charW wide.
+  char run[96];
+  int n = 0;
+  for (const char* p = s; ; ++p) {
+    if (*p == 0 || isArrow(*p)) {
+      if (n) {
+        run[n] = 0;
+        cv->drawString(run, x, y);
+        x += n * M.charW;
+        n = 0;
       }
-      newline();
-      if (buf[0] == ' ') continue;           // swallow the space at a wrap
+      if (*p == 0) break;
+      drawArrow(x, y, *p, fg, bg);
+      x += M.charW;
+    } else if (n < (int)sizeof(run) - 1) {
+      run[n++] = *p;
     }
-    D().setCursor(cursor_x_, chat_y_);
-    D().print(buf);
-    emit(buf);
-    cursor_x_ += wpx;
   }
 }
 
-void ChatUI::ready() {
-  D().fillScreen(C_BG);
-  chat_y_     = CHAT_Y0;
-  cursor_x_   = MARGIN;
-  input_      = "";
-  line_count_ = 0;
-  cur_        = "";
-  cur_color_  = 0;
-  offset_     = 0;
-  drawStatusBar("Pocket Inbox", C_DIM);
-  drawInputBox();
+void textRight(int x, int y, const char* s, uint16_t fg, uint16_t bg) {
+  cv->setTextSize(M.scale);
+  cv->setTextDatum(textdatum_t::top_right);
+  cv->setTextColor(fg, bg);
+  cv->drawString(s, x, y);
+  cv->setTextDatum(textdatum_t::top_left);
 }
 
-void ChatUI::repaint() {
-  D().fillScreen(C_BG);
-  drawStatusBar("Pocket Inbox", C_DIM);
-  redrawChat();
-  drawInputBox();
+// Seven glyphs a second: fast enough not to test the reader's patience on a
+// deep path, slow enough to read without chasing it.
+static constexpr int MARQUEE_CPS = 7;
+
+static uint32_t hashOf(const char* s) {
+  uint32_t h = 2166136261u;                       // FNV-1a
+  for (; *s; ++s) h = (h ^ (uint8_t)*s) * 16777619u;
+  return h;
 }
 
-// ---------- Settings ----------
+void marquee(int x, int y, int w, const char* s, uint16_t fg, uint16_t bg) {
+  // The animation phase is derived from millis(), so only two words of state
+  // are kept: which string is running, and when it started.
+  static uint32_t lastKey = 0;
+  static uint32_t startMs = 0;
 
-void ChatUI::showSettings(const char* title, const std::string* names, const std::string* values,
-                          int n, int selected) {
-  D().fillScreen(C_BG);
-  chatFont();
-  D().setTextColor(C_STATUS, C_BG);
-  D().setCursor(4, 2);
-  D().print(title);
-  int header = LINE_H + 4;
-  D().drawFastHLine(0, header, W, C_DIV);
+  const int len    = (int)strlen(s);
+  const int textPx = len * M.charW;
 
-  const int footer_h = 12;
-  const int row_h = LINE_H + 2;
-
-  for (int i = 0; i < n; i++) {
-    int y = header + 4 + i * row_h;
-    uint16_t bg = (i == selected) ? 0x2A4A : C_BG;
-    D().fillRect(0, y, W, row_h, bg);
-    D().setTextColor(i == selected ? C_TEXT : C_DIM, bg);
-    D().setCursor(6, y + 1);
-    D().print(names[i].c_str());
-    D().setTextColor(i == selected ? C_STATUS : C_BOT, bg);
-    D().setCursor(W - 8 - D().textWidth(values[i].c_str()), y + 1);
-    D().print(values[i].c_str());
+  if (textPx <= w) {
+    // Nothing to scroll. Clearing the key matters: without it, stepping onto a
+    // short name and back would resume the old run mid-cycle instead of
+    // restarting from the head.
+    lastKey = 0;
+    text(x, y, s, fg, bg);
+    return;
   }
 
-  D().fillRect(0, H - footer_h, W, footer_h, C_BAR);
-  D().drawFastHLine(0, H - footer_h, W, C_DIV);
-  uiFont();
-  D().setCursor(4, H - footer_h + 2);
-  D().setTextColor(C_DIM, C_BAR);
-  D().print("; .  move    , /  adjust    tab  back");
+  const uint32_t key = hashOf(s);
+  const uint32_t now = millis();
+  if (key != lastKey) { lastKey = key; startMs = now; }
+
+  const int off = marqueeOffset(now - startMs, textPx, w, M.charW * MARQUEE_CPS);
+
+  // Fixed-width font, so the window maps straight onto a slice of the string:
+  // draw only the glyphs that can land inside it, however long the path is.
+  char slice[96];
+  const int first = off / M.charW;
+  int take = len - first;
+  const int room = charsFor(w) + 2;               // + the two partial edge cells
+  if (take > room)                    take = room;
+  if (take > (int)sizeof(slice) - 1)  take = (int)sizeof(slice) - 1;
+  memcpy(slice, s + first, take);
+  slice[take] = 0;
+
+  // Clip so the partial leading glyph cannot bleed into the size column or
+  // under the scrollbar; nothing else sets a clip, so clearing restores it all.
+  cv->setClipRect(x, y, w, M.lineH);
+  cv->fillRect(x, y, w, M.lineH, bg);
+  cv->setTextSize(M.scale);
+  cv->setTextDatum(textdatum_t::top_left);
+  cv->setTextColor(fg, bg);
+  cv->drawString(slice, x - (off % M.charW), y);
+  cv->clearClipRect();
 }
 
-void ChatUI::fatal(const char* s) {
-  D().fillScreen(0x8000);
-  D().setTextWrap(true);
-  chatFont();
-  D().setCursor(4, 4);
-  D().setTextColor(0xFFFF);
-  D().print("FATAL: ");
-  D().print(s);
-  while (1) delay_ms(1000);
+void center(int y, const char* s, uint16_t fg, int scaleMul) {
+  cv->setTextSize(M.scale * scaleMul);
+  cv->setTextDatum(textdatum_t::middle_center);
+  cv->setTextColor(fg, C_BG);
+  cv->drawString(s, M.w / 2, y);
+  cv->setTextSize(M.scale);
+  cv->setTextDatum(textdatum_t::top_left);
 }
 
-// ---------- Selector ----------
+// Word wrap on spaces, hard-breaking anything longer than a line. Honours '\n'.
+int wrap(int x, int y, int maxChars, const char* s, uint16_t fg) {
+  if (maxChars < 1) maxChars = 1;
+  char line[128];
+  if (maxChars > (int)sizeof(line) - 1) maxChars = sizeof(line) - 1;
 
-void ChatUI::showSelector(const char* title, const std::string* items, const std::string* subs,
-                          int n, int selected) {
-  D().fillScreen(C_BG);
-  chatFont();
-  D().setTextColor(C_STATUS, C_BG);
-  D().setCursor(4, 2);
-  D().print(title);
-  int header = LINE_H + 4;
-  D().drawFastHLine(0, header, W, C_DIV);
+  const int limit = M.h - M.footerH - M.lineH;
+  while (*s) {
+    if (y > limit) break;          // never draw underneath the footer
+    if (*s == '\n') { ++s; y += M.lineH; continue; }
 
-  const int footer_h = 12;
-  const int row_h = LINE_H + 2;
-  const int avail = H - header - footer_h - 2;
-  const int rows = avail / row_h;
+    int take = 0;
+    while (s[take] && s[take] != '\n' && take < maxChars) ++take;
 
-  int first = 0;
-  if (selected >= rows) first = selected - rows + 1;
+    if (s[take] && s[take] != '\n' && take == maxChars) {
+      int brk = take;
+      while (brk > 0 && s[brk] != ' ') --brk;
+      if (brk > 0) take = brk;
+    }
 
-  for (int i = 0; i < rows && first + i < n; i++) {
-    int idx = first + i;
-    int y = header + 2 + i * row_h;
-    uint16_t bg = (idx == selected) ? 0x2A4A : C_BG;
-    D().fillRect(0, y, W, row_h, bg);
-    D().setTextColor(idx == selected ? C_TEXT : C_DIM, bg);
-    D().setCursor(6, y + 1);
-    D().print(items[idx].c_str());
+    memcpy(line, s, take);
+    line[take] = 0;
+    text(x, y, line, fg);
+    y += M.lineH;
+    s += take;
+    while (*s == ' ') ++s;
+  }
+  return y;
+}
+
+int ellipsize(char* dst, size_t sz, const char* s, int maxChars) {
+  if (maxChars < 4) maxChars = 4;
+  if ((size_t)maxChars > sz - 1) maxChars = (int)sz - 1;
+  int len = (int)strlen(s);
+  if (len <= maxChars) {
+    strncpy(dst, s, sz - 1);
+    dst[sz - 1] = 0;
+    return len;
+  }
+  // Paths matter most at the tail, so drop the front.
+  snprintf(dst, sz, "...%s", s + (len - (maxChars - 3)));
+  return maxChars;
+}
+
+// Keeps the head of the string — for labels, where the front carries meaning.
+int clip(char* dst, size_t sz, const char* s, int maxChars) {
+  if (maxChars < 1) maxChars = 1;
+  if ((size_t)maxChars > sz - 1) maxChars = (int)sz - 1;
+  int len = (int)strlen(s);
+  if (len <= maxChars) {
+    strncpy(dst, s, sz - 1);
+    dst[sz - 1] = 0;
+    return len;
+  }
+  memcpy(dst, s, maxChars);
+  dst[maxChars] = 0;
+  if (maxChars >= 1) dst[maxChars - 1] = '.';
+  return maxChars;
+}
+
+void human(uint64_t b, char* out, size_t sz) {
+  if      (b < 1024ULL)                   snprintf(out, sz, "%uB",   (unsigned)b);
+  else if (b < 1024ULL * 1024)            snprintf(out, sz, "%.1fK", b / 1024.0);
+  else if (b < 1024ULL * 1024 * 1024)     snprintf(out, sz, "%.1fM", b / 1048576.0);
+  else                                    snprintf(out, sz, "%.2fG", b / 1073741824.0);
+}
+
+// -----------------------------------------------------------------------------
+//  Widgets
+// -----------------------------------------------------------------------------
+
+void scrollbar(int x, int y, int h, int total, int visible, int top) {
+  if (total <= visible || h <= 0) return;
+  int w = 2 * M.scale;
+  cv->fillRect(x, y, w, h, C_TRACK);
+  int knob = h * visible / total;
+  if (knob < 3 * M.scale) knob = 3 * M.scale;
+  if (knob > h) knob = h;
+  int span = total - visible;
+  int ky   = y + (span > 0 ? (h - knob) * top / span : 0);
+  cv->fillRect(x, ky, w, knob, C_HDR_FG);
+}
+
+void progress(int x, int y, int w, int h, float frac, uint16_t col) {
+  if (frac < 0) frac = 0;
+  if (frac > 1) frac = 1;
+  cv->drawRect(x, y, w, h, C_DIM);
+  int fill = (int)((w - 2) * frac);
+  if (fill > 0) cv->fillRect(x + 1, y + 1, fill, h - 2, col);
+}
+
+void usageBar(int x, int y, int w, uint64_t used, uint64_t total) {
+  char u[16], t[16], buf[48];
+  human(used, u, sizeof(u));
+  human(total, t, sizeof(t));
+  snprintf(buf, sizeof(buf), "%s / %s", u, t);
+
+  // The label is sized first and the bar takes what is left, so neither runs
+  // off the panel however large the card is.
+  const int labelW = (int)strlen(buf) * M.charW;
+  const int avail  = M.w - x - M.pad * 2;
+  if (w > avail - labelW - M.pad * 2) w = avail - labelW - M.pad * 2;
+  if (w < M.charW * 4) w = M.charW * 4;
+
+  const int h = M.lineH;
+  const float frac = total ? (float)((double)used / (double)total) : 0.0f;
+  progress(x, y, w, h, frac, frac > 0.9f ? C_ERR : (frac > 0.7f ? C_WARN : C_OK));
+  text(x + w + M.pad * 2, y, buf, C_DIM);
+}
+
+// -----------------------------------------------------------------------------
+//  Menu
+// -----------------------------------------------------------------------------
+
+const char* menu(int y0, const MenuItem* items, int n, int idx, int& scroll) {
+  bool anySub = false;
+  for (int i = 0; i < n; ++i) if (items[i].sub) anySub = true;
+
+  // Two-line rows are only worth it while enough of them still fit; on a short
+  // panel with big text they would leave two items visible out of five.
+  const int rhSub   = M.lineH * 2 + 4 * M.scale;
+  const int rhPlain = M.lineH + 6 * M.scale;
+  const bool inlineSub = anySub && rowsFor(y0, rhSub) >= 3;
+  const int  rh   = inlineSub ? rhSub : rhPlain;
+  const int  rows = rowsFor(y0, rh);
+
+  if (idx < scroll)         scroll = idx;
+  if (idx >= scroll + rows) scroll = idx - rows + 1;
+  if (scroll > n - rows)    scroll = n - rows;
+  if (scroll < 0)           scroll = 0;
+
+  const int  barX  = M.w - 2 * M.scale - M.pad;
+  const bool bar   = n > rows;
+  const int  textR = bar ? barX - M.pad : M.w - M.pad;
+
+  char buf[96];
+  for (int r = 0; r < rows && scroll + r < n; ++r) {
+    const MenuItem& it = items[scroll + r];
+    const int  i   = scroll + r;
+    const int  y   = y0 + r * rh;
+    const bool sel = (i == idx);
+
+    if (sel) cv->fillRect(0, y, M.w, rh - M.scale, C_SEL_BG);
+    const uint16_t bg = sel ? C_SEL_BG : C_BG;
+    const uint16_t fg = sel ? C_SEL_FG : (it.accent ? it.accent : C_FG);
+
+    int x = M.pad * 2;
+    text(x, y + M.scale * 2, sel ? ">" : " ", sel ? C_HDR_FG : fg, bg);
+    x += M.charW * 2;
+
+    if (it.check >= 0) {
+      snprintf(buf, sizeof(buf), "[%c]", it.check ? 'x' : ' ');
+      text(x, y + M.scale * 2, buf, it.check ? C_OK : C_MUTE, bg);
+      x += M.charW * 4;
+    }
+
+    int labelR = textR;
+    if (it.right) {
+      const int rw = (int)strlen(it.right) * M.charW;
+      textRight(textR, y + M.scale * 2, it.right, sel ? C_SEL_FG : (it.rightCol ? it.rightCol : C_DIM), bg);
+      labelR = textR - rw - M.charW;
+    }
+    clip(buf, sizeof(buf), it.label, charsFor(labelR - x));
+    text(x, y + M.scale * 2, buf, fg, bg);
+
+    if (inlineSub && it.sub) {
+      ellipsize(buf, sizeof(buf), it.sub, charsFor(textR - x));
+      text(x, y + M.scale * 2 + M.lineH, buf, sel ? C_DIM : C_MUTE, bg);
+    }
   }
 
-  D().fillRect(0, H - footer_h, W, footer_h, C_BAR);
-  uiFont();
-  D().setCursor(4, H - footer_h + 2);
-  D().setTextColor(C_DIM, C_BAR);
-  D().print("; / .  move    enter  select");
+  if (bar) scrollbar(barX, y0, rows * rh, n, rows, scroll);
+
+  // Nothing was lost if the sublabels were drawn; otherwise hand the selected
+  // one back so the caller can show it in the footer.
+  return inlineSub ? nullptr : (idx >= 0 && idx < n ? items[idx].sub : nullptr);
 }
 
-void ChatUI::showProgress(const char* label, size_t done, size_t total) {
-  static size_t last = SIZE_MAX;
-  if (done != total && done - last < total / 50) return; // throttle
-  last = done;
-  D().fillRect(0, H/2 - 16, W, 32, C_BG);
-  uiFont();
-  D().setCursor(4, H/2 - 12);
-  D().setTextColor(C_STATUS, C_BG);
-  D().print(label);
-  int pct = total ? (int)(done * 100 / total) : 0;
-  D().drawRect(4, H/2 + 2, W - 8, 8, C_TEXT);
-  D().fillRect(5, H/2 + 3, (W - 10) * pct / 100, 6, 0x07E0);
-  D().setCursor(W - 36, H/2 - 12);
-  char b[16]; snprintf(b, sizeof(b), "%d%%", pct);
-  D().print(b);
-}
-
-// ---------- Input ----------
-
-void ChatUI::onChar(char c) {
-  if (c < 32 || c > 126) return;
-  if (input_.length() > 200) return;
-  input_ += c;
-  drawInputBox();
-}
-void ChatUI::onBackspace() {
-  if (!input_.length()) return;
-  input_.pop_back();
-  drawInputBox();
-}
-std::string ChatUI::takeInput() {
-  std::string s = input_; input_ = ""; drawInputBox();
-  return s;
-}
-
-void ChatUI::appendUser(const std::string& s) {
-  snapToLive();
-  cursor_x_ = MARGIN;
-  writeText("> ", C_USER);
-  writeText(s.c_str(), C_TEXT);
-  newline();
-}
-void ChatUI::beginBotReply() { in_bot_ = true; cursor_x_ = MARGIN; }
-void ChatUI::appendBot(const char* piece) { writeText(piece, C_BOT); }
-void ChatUI::endBotReply(int tokens, float tok_per_s, int prompt_tokens, uint32_t prompt_ms) {
-  newline();
-  in_bot_ = false;
-  // e.g. "9 tok @ 5.10 t/s  (read 42 in 8.2s)" - fits the 40-column status bar
-  if (tok_per_s > 0) statusf("%d tok @ %.2f t/s  (read %d in %.1fs)", tokens,
-                             tok_per_s, prompt_tokens, prompt_ms/1000.0f);
-}
+}  // namespace ui

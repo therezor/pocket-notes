@@ -2,14 +2,24 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.4
+    version: 5.5.5
+  joltwallet/littlefs:
+    component_hash: 3af20a3d75c49db9dc2286fd50862c34055c9f578419ad1f2bf7ed3ed01391fe
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.22.3
   m5stack/m5gfx:
-    component_hash: 44770c05520e12d0cd15662b25ae1abe0f4f98c9b08166232b4f03b07c26a535
+    component_hash: ebd725c94610759ccfc1227f60a395932f591e17b95bebec80164d853535c8c5
     dependencies: []
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 0.2.22
+    version: 0.2.32
   m5stack/m5unified:
     component_hash: 363c05d034f103471dcbe76e5e0773ecc0fe263212930259867212341b1e48a4
     dependencies:
@@ -23,7 +33,8 @@ dependencies:
     version: 0.2.17
 direct_dependencies:
 - idf
+- joltwallet/littlefs
 - m5stack/m5unified
-manifest_hash: cfcd6f7cdec443b62f32bac74c6c05e5217046ec28bdd92d90e7c0a9424c3dfd
+manifest_hash: 9df5e792402ba52f89e5c43eec01f16a72cc09d3b7c7883a30b3e04fb96df9ff
 target: esp32s3
 version: 2.0.0

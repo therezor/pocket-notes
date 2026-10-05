@@ -1,0 +1,49 @@
+# End-to-end smoke test on the device (tools/remote.py --script tools/smoke.txt).
+# Uses notes containing "zzsmoke" and deletes them again; other notes are untouched.
+key esc esc esc
+heap
+shot home
+# New note from Home: the model suggests, Enter accepts.
+key n
+type buy milk and eggs zzsmoke
+shot editor
+key enter
+wait 8000
+shot pick
+key enter
+wait 300
+dump
+expect buy milk and eggs zzsmoke
+# Checklist inside Todo: add, tick, check, delete.
+key down down
+key enter
+type call the plumber zzsmoke
+key enter
+wait 300
+key down
+key space
+wait 200
+shot list
+dump
+expect done=1 pin=0 date= call the plumber zzsmoke
+key d
+key enter
+key esc
+# Search across categories: two words must both match.
+key f
+type zzsmoke milk
+wait 200
+shot search
+key enter
+shot note
+key d
+key enter
+wait 200
+key esc
+dump
+reject zzsmoke
+key down down down down down down down down
+key enter
+shot settings
+key esc
+heap

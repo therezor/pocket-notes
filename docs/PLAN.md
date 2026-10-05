@@ -1,205 +1,205 @@
-# Pocket Inbox: offline quick-capture for the Cardputer, powered by TinyDecide
+# Pocket Notes: plan
 
 ## Context
-TinyDecide needs a demo on the Cardputer that is genuinely useful. Today the Cardputer ecosystem is dominated by pentest firmware, launchers and emulators. Productivity apps are thin: the community app lists only show Micro-journal, PDAputer, a stopwatch and a weather app. The only on-device AI app is TinyTalk.
+Pocket Inbox (a skeleton: echo loop, a JS reference engine, no device engine) becomes **Pocket Notes**: a note-taking app for the Cardputer that sorts notes into categories.
+- **Main screen:** "+ New note", then the categories.
+- **Categories:** the on-device TinyDecide model suggests one for each new note.
+- **Time:** the Cardputer has no RTC, so the app must not depend on a clock.
+- **Look:** a copy of the SD cleaner (`../esp32_cleaner`): palette, 8x16 font, header, footer and menu.
+- **Delivery:** push to `git@github.com:therezor/pocket-notes.git`, then flash the Cardputer at `/dev/cu.usbmodem1101`.
 
-Pocket Inbox turns the Cardputer into a **pocket capture device**. You type any thought in a few seconds and it gets filed: todos, events, expenses, contacts, notes and ideas. Each is saved with its fields pulled out, fully offline, as plain files that open in Obsidian or a spreadsheet.
+What you chose:
+- Classification: AI auto-classify now.
+- Top item on the main screen: "+ New note".
+- Time: no clock, plus optional NTP.
+- Names: `pocket-notes` for folders, `notes` for the SD folder.
 
-It shows off everything TinyDecide does:
-- all four answer types: choice, yes/no (noul), score and span
-- questions that users write themselves at runtime
-- corrections that work without retraining
-- calibrated confidence
+The routing seed run only reached 50%, so the model **preselects** a category and you confirm it with Enter. Every note you file becomes a training example, so suggestions improve as you use the app.
 
-## 1. What the app is for the user
+## Stage 0: get the build working (blocks everything)
+`pio run` currently fails with `ModuleNotFoundError: SCons.Tool.FortranCommon`.
+1. Run `pio run` in `esp32_cleaner`, which uses the same pioarduino 55.03.39 platform but the Arduino framework.
+   - If it also fails, the PlatformIO/SCons install is broken. Read the traceback to find which file imports `FortranCommon`, check `~/.platformio/packages/tool-scons`, then try `pio upgrade` or reinstalling tool-scons.
+   - If it builds, the problem is specific to the espidf builder.
+2. Fallbacks, in this order:
+   - (a) Fix the espidf builder or pin the platform/SCons version.
+   - (b) Switch `platformio.ini` to `framework = arduino`, which the cleaner already builds with. Arduino core 3.x is IDF 5.5 underneath, so the IDF APIs, M5Unified and the `.S` kernel all still work; `app_main` becomes `setup()`/`loop()`.
+3. The exit test is a flashable echo build.
 
-**The problem.** Ideas, tasks and receipts come up while you're away from your desk. Opening a phone means notifications and lost focus, and phone notes end up as an unsorted pile. Proper task or finance apps make you fill in a form for every entry.
+## Stage 1: rename + notes app with the cleaner UI (first flashable version)
+**Rename (inside the repo):**
+- CMake `project(pocket_notes)`, the UI title "Pocket Notes", README, PLAN.md.
+- `sd/inbox/` → `sd/notes/`, and `host/inbox_*` → `host/notes_*`.
+- `rules.txt` is removed: the category question lives in code, and the categories come from `categories.txt`.
 
-**Pocket Inbox.** You type one line in plain language and press Enter. About a second later the line is filed into the right list, with its date, time, amount and person already filled in. You never pick a category or fill a form. Nothing leaves the device.
+**UI: port from the cleaner** into `firmware/main/ui.{h,cpp}` and `layout.{h,cpp}`. This replaces the chat UI.
+- **Palette:** `C_BG 0x0862`, `C_HDR_BG 0x1926`, `C_HDR_FG 0x3DFF`, `C_SEL_BG 0x220D`, `C_FG 0xE77E`, `C_DIM 0xADB9`, `C_MUTE 0x6B6D`, `C_OK`, `C_WARN`, `C_ERR`, `C_TRACK`.
+- **Helpers copied as they are:** `layoutFor()`, `header`, `footer`/`footerf`, `menu`, `text`/`textRight`, `marquee`, `wrap`, `ellipsize`, `scrollbar`, and `center` for the splash.
+- **Fonts:** `fonts::AsciiFont8x16`, with Font0 for "compact" mode.
+- **Canvas:** a full-screen 16-bit `M5Canvas` (65 KB), as in the cleaner.
+- **SRAM fallback:** if the canvas plus the engine buffers don't fit in SRAM (measured in Stage 2), draw the body straight to the display instead.
+- **Keys:** copied from `esp32_cleaner/src/hal/hal_cardputer.cpp` on top of the vendored `keyboard/` driver.
+  - New presses are detected by an FNV hash of the held keys.
+  - Auto-repeat starts after 400 ms and repeats every 60 ms, for movement keys and backspace only.
+  - `;` `.` move up/down, `,` `/` page, Enter, backspace = back, `` ` `` = esc.
 
-| You type | What it becomes |
-|---|---|
-| `call mom tomorrow 6pm` | **Todo**, due Tue 18:00 |
-| `lunch 12.40 with Mark` | **Expense**: 12.40 · food · with Mark |
-| `Anna new number 555 0134` | **Contact**: Anna · 555 0134 |
-| `server down again!! fix before demo friday` | **Todo**, urgency **high**, due Fri |
-| `dentist oct 14 at 9:30` | **Event** on Oct 14, 09:30 |
-| `idea: solar plant moisture sensor` | **Idea** |
-| `buy milk, eggs, coffee` | **Shopping** |
+**Screens**
+- **Home**
+  - Header: "Pocket Notes", with the clock (or "SD"/"no SD") on the right.
+  - Rows: "+ New note", "Search", then each category with counts (e.g. `Todo  3/7` = 3 open of 7), then "Settings".
+  - On a category row: `r` renames it, `d` deletes it (asks first, moves its notes to Notes).
+- **Category view**
+  - Rows: "+ New note" (filed straight into this category), then notes newest first, pinned ones first.
+  - Checklist categories show `[ ]`/`[x]`.
+  - Keys: Enter opens, space toggles done, `p` pins, `m` moves, `d` deletes (asks first), esc goes back.
+- **Search**
+  - Opened from the Home "Search" row, or with `f` on Home (all notes) or `f` in a category view (that category only).
+  - Header: a query box in the editor style. Below it, live results that update on every keystroke.
+  - Matching: case-insensitive. Every space-separated word must appear (AND). Done notes are included but listed after open ones.
+  - Rows: a short category tag in C_DIM (e.g. `Todo`), then the note text with the first match shown in C_HDR_FG. The selected row scrolls with `marquee`.
+  - Keys: typing edits the query, `;` `.` move through results, Enter opens the note view (whose esc returns to the results), esc goes back.
+  - Implementation: a linear scan over the in-memory note index, which holds every note's text, category, id and flags (loaded at boot; at most a few thousand short lines). No extra files. The header shows the result count on the right.
+- **Editor**
+  - The cleaner's editor style: an outlined box with wrapped text (up to about 200 chars, one paragraph).
+  - Footer: `enter save  esc cancel`.
+- **File-as picker** (after saving from Home)
+  - The category list with the model's pick preselected and its confidence on the right, plus "+ New category" at the end.
+  - A spinner shows while the model runs. If you start moving, the suggestion no longer moves the cursor.
+- **Note view:** wrapped text, `#42` or the date on the right. `e` edits, `m` moves, `d` deletes, space toggles.
+- **Settings**
+  - Storage (SD / Device), copy notes between them, compact font, AI suggest on/off, WiFi SSID/password, NTP status, "Sync time now", "Forget learning".
+  - About: model version, free heap.
 
-**Why it helps**
-- **Capture in under 5 s.** Pull it from a pocket, type, Enter. The raw line is written to SD before the model even runs, so nothing is ever lost.
-- **Zero sorting.** The daily **Today** screen shows what's due, what's urgent and what the model wasn't sure about.
-- **Your own categories.** Add something like "workout → extract the distance" by editing a text file. No retraining and no PC tools.
-- **It learns your habits.** Correct a wrong category once and similar entries are routed right afterwards.
-- **Private and offline.** No account, no cloud, no WiFi needed.
-- **Your data stays usable.** It is Markdown in Obsidian Tasks format plus CSV for expenses and contacts. Pull the SD card, or use the optional WiFi export.
+**Storage backend: SD card or device memory** (the app works without an SD card)
+- **Partition table:** add a LittleFS `storage` partition by shrinking the factory app.
+  - Today `partitions.csv` gives the whole 0x7F0000 to the app.
+  - Target is factory 0x770000 (7.44 MB: 6.18 MB model + about 1.2 MB code) plus storage 0x80000 (512 KB, room for thousands of notes).
+  - Check the code size against the Stage 0 build before fixing these numbers. If code needs more room, storage drops to 256 KB.
+- **Filesystem:** device memory uses `joltwallet/littlefs`, which is power-loss safe, mounted at `/flash`. The SD card uses `esp_vfs_fat_sdspi_mount`, with pins from `M5.getPin()` as in the cleaner, mounted at `/sd`.
+  - Both use the same `/notes/` layout and the same code, through one `store` root-path switch.
+- **Choosing the backend:**
+  - The choice lives in NVS, because it can't live on a backend that might be missing.
+  - First boot: SD if a card is inserted, otherwise device.
+  - Settings shows "Storage: SD / Device" and the free space on each.
+- **SD selected but no card:** a boot prompt offers "Retry" or "Use device memory". It never writes to the other backend without asking, so notes don't get split.
+- **Migration:** Settings has "Copy notes SD → device" and "device → SD". This copies the whole `/notes/` folder, with a confirm prompt when the target already has notes.
+- **WiFi without a card:** SSID and password can be entered in Settings with the editor, so NTP also works without `settings.ini` on SD.
 
-## 2. Screens and controls
-These are built with M5GFX on the 240×135 screen, reusing `cardputer_ai/main/ui.cpp` and `keyboard/`. LVGL is out because flash and SRAM are tight.
+**Files** (`/notes/` on the active backend):
+- `categories.txt`
+  - One per line: `Name [| hint] [| check]`.
+  - The hint is the option text the model sees; the name is used when there's no hint.
+  - `check` makes it a checklist category.
+  - Defaults: Todo (check), Shopping (check), Ideas, Events, Contacts, Notes.
+- `<cat_id>.md`: one note per line, Obsidian-friendly.
+  - Format: `- [ ] buy milk ➕ 2026-10-05 #pinned ^n42`.
+  - The `➕ date` is written only when the clock is known. `^nID` is the stable id.
+  - Notes in non-checklist categories are written `- text`.
+  - Files are rewritten through a temp file + rename, so a power cut loses at most the note being saved.
+- `settings.ini`: wifi_ssid, wifi_pass, utc_offset_min, compact, ai.
 
-1. **Capture (home).**
-   - Shows a big input line and a status bar (clock, battery, number of items waiting for review).
-   - Enter submits. Input is capped at about 120 tokens, which is one state window, so no windowed reading is needed.
-   - You can type the next entry immediately, because the model runs on the other core and works through a queue.
-2. **Result card (does not block typing).** This appears above the input line about 1 s after Enter.
-   - Shows the category, a confidence bar and the extracted fields.
-   - **Typing any character accepts the card** and starts the next entry, so capture is never interrupted.
-   - `Fn+F` ("fix last") or the Review screen opens the card for editing:
-     - `Tab`/`←→` change the category, which records a correction.
-     - `↑↓` + Enter edit a field.
-     - `Esc` keeps the entry as a plain note.
-   - If confidence is below the threshold (about 0.35, tuned in M0), the card shows "Not sure" and the entry goes to the Review queue.
-3. **Today.** Overdue, today and tomorrow items plus high-urgency todos. Shortcuts: `D` done, `S` snooze one day.
-4. **Lists.** One screen per category with a simple substring search (`/`), plus expense totals for this week and month. Totals are computed in C++, never by the model.
-5. **Review.** Uncertain and recent items for a quick yes, change or correct.
-6. **Rules.** Shows the active questions and reloads `rules.txt`. Editing happens in a minimal on-device line editor, or on a PC.
-7. **Settings.** Set the clock manually or by NTP over WiFi, the confidence threshold, WiFi export on or off, and a reset-corrections button.
+**Time without an RTC**
+- Every note gets a sequence id `#N`. The next id is kept in NVS, and the max found on SD wins. Ordering uses the id, never time.
+- If `M5.Rtc.isEnabled()` (an RTC may exist on the ADV; check at boot), use it.
+- Else, if WiFi is set in `settings.ini`, a boot task runs SNTP (8 s timeout) and then turns WiFi fully off.
+- Synced: the header shows HH:MM and new notes get a date. Not synced: no dates, and nothing breaks.
 
-## 3. How the model is used
+**Flash to test:** flash with `pio run -t upload`, and confirm it boots and SD works from the serial log.
 
-**Rules file** (`/inbox/rules.txt` on the card, starter copy in `pocket_inbox/sd/inbox/`, one question per line):
-```
-[route]
-choice route: What kind of entry is this? | todo, event, expense, contact, note, idea, shopping
+## Stage 2: TinyDecide device engine (`firmware/components/tinydecide/`)
+**Host packers** (Node, no dependencies):
+- `host/pack_model.mjs` turns `meta.json` into:
+  - `model/vocab.bin`: sorted wordpieces + ids, for binary-search lookup.
+  - `td_meta.h`: tensor offsets/shapes, specials, format, temp/beta.
+- `model.bin` is embedded unchanged with `.incbin` (`.align 16`).
+  - Its Q4 layout (a nibble plane plus a separate bf16 scale plane, both per row) already matches `dot_q4q8_pie(nib, xq, scales, xs, nb)`.
+  - The packer checks that every Q4 offset is 16-byte aligned.
 
-[all]
-score urgency: How urgent is it? | low, medium, high
-span time: Extract the time.
-span day: Extract the day or date.
-span person: Extract the person's name.
+**Engine (C++)**
+- **Tokenizer:** ASCII-only WordPiece. The keyboard only types ASCII, so this means lowercase, splitting on punctuation, and the `##` prefix rule.
+- **Request layout:** ported from `encodeRequest`.
+- **Encoder:** electra embeddings, then 12 layers.
+- **Streamed kernel** (tinydecide PLAN, SRAM plan line ~835):
+  - Activations are quantized to Q8 once per layer input.
+  - K and V for all tokens are kept in fp16.
+  - Attention runs one head at a time, and W_o is accumulated into the residual.
+  - The FFN runs in 64-neuron chunks.
+  - Each weight row is read once per layer and applied to all T tokens. The rows are split across both cores, using the `mm_worker` pattern from `cardputer_ai/main/llm.cpp:232`.
+- **Heads:** choice only (route), returning probs, confidence, `qvec` (h.P, 128-d) and `z0`.
+- **Buffers:** one allocation at init, sized for T_MAX = 96. Max 48 tokens of note text are encoded.
+- **Inference task:** a FreeRTOS task with a request queue. The UI keeps polling keys and redraws the spinner at a low rate.
 
-[expense]
-span amount: Extract the amount of money.
-choice spent_on: What was the money spent on? | food, transport, shopping, bills, fun, other
+**Parity test**
+- `host/make_ref.mjs` runs the JS engine on about 20 notes with the category question and writes the expected ids and probs to a C table.
+- A `-D TD_SELFTEST` build prints mismatches over serial.
+- Exit: 0 token-id mismatches, the same pick on every case, and max |dp| < 0.02 (Q8 activations vs the fp32 JS).
+- Also log latency (target ≤ 1.5 s) and heap high-water marks.
 
-[contact]
-span phone: Extract the phone number.
-span email: Extract the email address.
+## Stage 3: auto-classify + learning
+- **Question:** `choice: What kind of note is this? | <hint-or-name of each category>`.
+  - Before fixing the default wording and hints, run `host/notes_eval.mjs` on relabelled scenarios. The wording is picked from that run.
+- **Learning:** every filed note is an example, with no separate corrections file. That covers notes typed inside a category and notes confirmed in the picker.
+  - For each category, the 8 most recent notes are embedded (`qvec`, `z0`) by a background task while the device is idle.
+  - The embeddings are cached in `/notes/.cache/vectors.bin`, keyed by (note id, signature of the category set).
+- **Changing the category set** (add, rename or delete a category) changes the signature. Only the cache is rebuilt, from the note texts on SD, so nothing learned is lost. The header shows `learning 3/40`.
+- **Corrections maths:** port of `protosFor`, `lambdaFor`, `termFor` and `noteCentre` (`../tinydecide/playground/index.html:224-273`). The centre is the running mean of `qvec` over the notes it has seen.
+- The suggestion is skipped when AI is off, or for notes added inside a category, which are filed straight away.
 
-[event]
-span place: Extract the place.
-```
-- Line grammar: `<type> <key>: <text> | <options>`. The key names the stored field.
-- A user-made category is a new option on the `[route]` line plus an optional `[<id>]` section, where the id is the option lowercased with spaces turned into `_`. It writes to `/inbox/<id>.md`.
+## Stage 4: publish
+- Rewrite README and PLAN.md for Pocket Notes; the old status log is kept as history.
+- Commit at each stage boundary.
+- `git remote add origin git@github.com:therezor/pocket-notes.git`.
+  - First check with `git ls-remote`. If the remote already has commits (README/LICENSE), rebase onto them.
+  - Then `git push -u origin main`.
+- **Final flash:** `pio run -t upload --upload-port /dev/cu.usbmodem1101`.
+  - **This overwrites the bootloader, partition table and app. If M5Launcher is on the device, it is replaced.** The image also stays installable through M5Launcher later.
+- **Very last:** rename the folder `~/Code/ESP32/pocket_inbox` → `~/Code/ESP32/pocket-notes` and do a clean `.pio` rebuild.
+  - The Claude Code session/memory path follows the old folder name, so start the next session in the new folder.
 
-**Passes.** The model uses full fusion, so question tokens go through all 12 layers. That means token count drives latency and SRAM (the streamed kernel caps it at about 180 live tokens per pass).
-- **Pass 1:** `[route]` + `[all]`. That's a state of about 20–40 tokens plus about 50–60 question tokens, so it fits easily. Target ≤1 s.
-- **Pass 2:** only when the chosen category has its own section, so expense, contact or event entries take two passes.
-- The card shows the category after pass 1 and fills in the fields after pass 2.
-- A packer splits question sets across passes under the token cap. This is needed anyway for user-made rule sets.
-
-**Post-processing (C++, deterministic):**
-- Day and time spans are turned into an actual date and time against the clock: today, tomorrow, weekdays, "oct 14", "6pm", "18:30".
-- Amount spans are parsed to a number plus currency. Phone and email spans are checked with simple patterns. A span is dropped if its P(present) is under 0.5 or it fails the check.
-- The model is weak at arithmetic, so dates, totals and maths never go through it.
-
-**Corrections:**
-- Port the playground logic from `playground/index.html` (`sig`, `protosFor`, `lambdaFor`, `noteCentre`, `termFor`, lines ~216–273).
-- Each correction stores a small int8 vector plus logits, appended to `/inbox/corrections.bin`. Corrections are keyed by question signature, so **editing a question's wording resets its corrections**. The Rules screen warns about this.
-- Choice, noul and score questions learn from corrections. Span edits only fix the saved data; the model's span head has no correction path.
-
-## 4. Data on SD (`/inbox/`)
-| File | Format |
-|---|---|
-| `log.jsonl` | Every entry: raw text, timestamp, all answers and confidences, plus any user edits. This is the source of truth; all other files are views built from it |
-| `todo.md`, `shopping.md`, `<custom>.md` | `- [ ] 18:00 call mom 📅 2026-10-06 ⏫` (Obsidian Tasks style: due date + priority; the time stays in the text) |
-| `events.md` | `- 2026-10-14 09:30 dentist @place` |
-| `notes.md`, `ideas.md` | `- 2026-10-05 14:02 text` |
-| `expenses.csv` | `date,amount,currency,category,who,text` |
-| `contacts.csv` | `name,phone,email,text` |
-| `rules.txt`, `corrections.bin`, `settings.ini` | config and learning state |
-
-"Done" and "snooze" are recorded in `log.jsonl` and also rewritten in the Markdown views.
-
-## 5. Firmware architecture
-- **Firmware project:** `pocket_inbox/firmware/` (see section 6), using ESP-IDF/PlatformIO and cloned from the `cardputer_ai` skeleton (`platformio.ini`, `sdkconfig.cardputer*`, `partitions.csv`, `keyboard/`, `ui.cpp`).
-- **Reusable engine component:** `components/tinydecide/` holds the tokenizer, encoder, heads and corrections. Later demos (IR remote, text adventure) can reuse it.
-- **Model embedding:** the `web_S768` model is embedded with `.incbin`, as `cardputer_ai/main/model_data.cpp` does.
-- **Flash:** 6.29 MB of model leaves about 2.0 MB for code.
-- **Distribution:** the existing `partitions.csv` (factory app 0x7F0000 = 8.32 MB) already works with M5Launcher, which swaps in the partition table on install. Published via M5Launcher/M5Burner.
-- **Tasks:**
-  - An inference task is fed by a FreeRTOS queue of entries and returns results by event.
-  - The matrix maths uses **both cores**, like the `mm_worker` pinned in `cardputer_ai/main/llm.cpp:246`. The latency estimates likely assume this.
-  - During a pass the UI only does a light keyboard scan and redraws at low priority. SD writes happen between passes.
-- **SRAM:**
-  - The model needs about 144 KB with the streamed kernel (from `docs/PLAN.md`).
-  - On top of that come the M5GFX line buffers, FATFS/SD buffers, the entry queue, task stacks and the parsed rules.
-  - Use cardputer_ai's measured free heap (model plus UI) as the baseline, and print high-water marks over serial.
-  - WiFi is turned on only for NTP or export and fully shut down afterwards, so its stack doesn't compete with inference.
-- **Clock:**
-  - I believe neither Cardputer model has a battery-backed RTC. Verify this.
-  - The clock is set by NTP or by hand, and the last-known time is saved in NVS.
-  - Reminder beeps work only while the device is awake (deep-sleep wake timer as a stretch goal).
-
-## 6. Project folder (first step of implementation)
-All Pocket Inbox work lives in a **new standalone folder, `/Users/rezor/Code/ESP32/pocket_inbox/`**, with its own `git init` on `main`. Nothing is added to `tinydecide/` or `cardputer_ai/`; both are only read from or copied out of.
-
-```
-pocket_inbox/
-  README.md                 what the app is, how to install via M5Launcher, how to use it
-  .gitignore                build/, .pio/, node_modules/, sdkconfig (generated)
-  docs/PLAN.md              this plan
-  model/                    copied from tinydecide/web_S768: model.bin, meta.json, tinydecide.js (+ refs for parity)
-    SOURCE.md               source path, date and sha256 of each file
-  sd/inbox/                 starter SD contents: rules.txt, settings.ini (copy to the card's /inbox/)
-  host/                     M0 tools (Node, no deps)
-    inbox_scenarios.jsonl   ~150 gold-labelled inbox lines
-    inbox_eval.mjs          runs scenarios + sd/inbox/rules.txt through model/tinydecide.js
-    rules.mjs               rules.txt parser (same grammar the firmware uses)
-  firmware/                 ESP-IDF/PlatformIO project, skeleton from cardputer_ai
-    platformio.ini, CMakeLists.txt, sdkconfig.cardputer, sdkconfig.cardputer-adv, sdkconfig.defaults, partitions.csv
-    components/tinydecide/  tokenizer, encoder, heads, corrections (reusable engine)
-    main/                   main.cpp, app/ (capture, card, today, lists, review, rules, settings), store/ (SD writers), keyboard/, ui.cpp
-```
-- **Kept from the `cardputer_ai` skeleton:** build config, `partitions.csv` (M5Launcher-compatible), `keyboard/`, `ui.cpp`, and `dot_q4_pie.S` (which moves into the engine component).
-- **Not kept:** the LLM files `llm.cpp`, `model_data.cpp`, `tok_data.cpp` and `trn2*`.
-- **Commit:** a single "Project skeleton" commit once the folder is created and the host eval runs.
-
-## 7. Milestones
-**M0 — Host feasibility (no firmware, ~1–2 days). This is the go/no-go gate.**
-- Write `host/inbox_scenarios.jsonl`: about 150 realistic inbox lines with gold labels, covering every category, messy typing, no-time and no-amount cases, and lines that fit nothing.
-- Script `host/inbox_eval.mjs` runs them through `model/tinydecide.js` with the exact `sd/inbox/rules.txt`. It reports per-question accuracy, confidence calibration, the chosen threshold and token count per pass.
-- Tune question wording and category names.
-- **Exit:** routing ≥85%, time/date/amount span ≥80%, pass 1 ≤ about 100 tokens. Below that, rework the categories, for example by merging todo and event.
-
-**M1 — Device engine** (in the `tinydecide` component):
-- WordPiece tokenizer using the 16k vocabulary and strings from `web_S768/meta.json`/`model.bin`.
-- Bidirectional encoder with a batched Q4 GEMM built from `cardputer_ai/main/dot_q4_pie.S`, plus the streamed kernel (planned in `docs/PLAN.md`).
-- The choice, noul, score and span heads, and a pass packer.
-- **Exit:**
-  - Results match the `web_S768` refs, using the same checks as the JS export (token ids, max|dp|).
-  - Latency is measured on the device and logged in `docs/PLAN.md`.
-  - Target ≤1 s for pass 1. If it's slower, fall back to the 6-layer or "compiled question" options already set out in `docs/PLAN.md`.
-
-**M2 — Capture loop:** capture screen, inference queue, result card, rules parser, `log.jsonl` + Markdown/CSV writers, clock and date resolution.
-
-**M3 — Organise:** Today, Lists, search, expense totals, done and snooze.
-
-**M4 — Learn:** corrections port, Review queue, confidence threshold setting.
-
-**M5 — Polish and release:** Rules screen and line editor, settings, WiFi NTP and export (a small HTTP page to download `/inbox` as files), battery and sleep, README with a demo GIF, M5Launcher release.
-
-**Stretch — "Ask your inbox":**
-- The user types a query such as `what did I spend on food this week`.
-- The model routes it into intent (list/sum/find), category and time range.
-- C++ runs it over `log.jsonl`.
-
-## 8. Verification
-- **M0:** run `node host/inbox_eval.mjs (from pocket_inbox/)` and check the accuracy and calibration report against the exit thresholds.
-- **M1:** on the device, the parity test over the `web_S768` ref set must give 0 token-id mismatches and a max|dp| within the export tolerance. Latency and SRAM high-water marks are printed over serial.
-- **M2–M4:**
-  - A scripted run on the device replays the M0 scenario file from SD as though each line were typed. Then compare the resulting `/inbox` files to the expected output.
-  - Correction test: correct one category, then check that a similar unseen line is routed the corrected way.
-  - Pull-the-SD test: the files open cleanly in Obsidian (the Tasks plugin shows due dates and priorities) and in a spreadsheet.
-- **Endurance:** 500 entries in a row with no heap growth, plus a power-cut mid-write that loses at most the one pending entry.
-
-## Open risks
-- Latency and SRAM are still estimates until M1.
-- Date spans in messy text ("next tue", "in 2 days") may need a C++ fallback using simple patterns.
-- Rare words such as names are a known weak spot for the 16k vocabulary. The person span may need user correction more often.
+## Verification
+- **Host:**
+  - `node model/verify.mjs` still reports 0 mismatches.
+  - `node host/notes_eval.mjs` reports routing accuracy zero-shot and after 2/5/8 examples per category, which is the expected device behaviour.
+- **Device, serial:**
+  - The selftest parity build passes.
+  - Latency and free-heap logs are within budget.
+  - Boot log shows the active backend (SD/device) and its free space, the category count, and the time source (RTC/NTP/none).
+  - Boot without a card: the app falls back to device memory, notes save, and they survive a power cycle.
+  - Copying notes SD → device gives an identical `/notes/` listing.
+- **Device, scripted:** a debug env (`cardputer-debug`) accepts key injection over USB serial and dumps the canvas, like the cleaner's `cardputer-shots` + `tools/grab-screenshots.py`.
+  - The script adds notes from Home, accepts or changes the suggestion, toggles, moves and deletes, and adds a category.
+  - It also searches: a two-word query must return only notes containing both words, across categories, and `f` inside a category must stay within that category.
+  - It grabs screenshots to compare against the cleaner's style, and reads `/notes/*.md` back over serial.
+- **Manual (you):** type a few notes on the device, pull the SD card, and open `/notes/` in Obsidian.
 
 ## Status log
+- **2026-10-05: Pocket Inbox becomes Pocket Notes.** The quick-capture inbox, with its 7 hardcoded routes, two passes and span extraction, is replaced by a notes app.
+  - Notes are sorted into user-editable categories. Todo and Shopping are checklists, with search, pin, move, an SD or device-memory backend and optional NTP.
+  - TinyDecide answers one choice question per note ("What kind of note is this?", with the categories as options), and the user always confirms the pick.
+- **Toolchain:** pioarduino 55.03.39 failed with `ModuleNotFoundError: SCons.Tool.FortranCommon`.
+  - Cause: the platform pins pioarduino `tool-scons` 4.8.1 and PlatformIO Core 6.2 installs 4.11.1. The platform's version check deletes Core's SCons package while the build is running, and a lazily imported SCons module is then missing.
+  - Fix: moved to platform 55.03.312-1 (IDF 5.5.5), which builds.
+- **Engine (M1) done in C++** (`firmware/components/tinydecide/engine.cpp`). It builds for the host and the device.
+  - Streamed kernel: the residual plus one int8 copy of the layer input; attention one head at a time with W_o accumulated into x; the FFN in 64-neuron chunks with fc2 accumulated into x. Scratch is about 2.2 KB per token.
+  - `model.bin` is embedded unchanged: its Q4 planes already match `dot_q4q8_pie`. `vocab.bin` is a sorted table for binary search.
+  - Host parity (`host/engine_test.sh`, 62 cases):
+    - 0 token-id mismatches.
+    - max|dp| 0.012 against the fp32 JS engine (from the Q8 activations).
+    - 3 pick flips, all on near-ties (0.256 vs 0.252).
+- **Routing** (`host/notes_eval.mjs`, 52 lines, 6 categories):
+
+  | Wording | Zero-shot | k=5 | k=8 |
+  |---|---|---|---|
+  | Bare category names | 42–46% | 52% | 56% |
+  | Descriptive hints ("a task to do", "something to buy", "an idea", "an appointment", "a phone number or email", "something to remember") | 48% | 71% | 73% |
+  | The same hints + text rules (phone/email +3 for Contacts, clock time +1.5 for Events) | **62%** | **75%** | **75%** |
+
+  - One yes/no question per category scored 48% at 65 tokens and was dropped.
+  - Shipped: the hints + rules. Every filed note is an example (8 newest per category), and the picker always asks the user to confirm.
+- **Partitions:** factory 0x770000 (7.44 MB) + LittleFS `storage` 0x80000. The image is 7.53 MB.
+- **Next:** on-device latency and heap numbers (the About screen and the `heap` remote command), then the smoke test (`tools/smoke.txt`).
+
+## History: Pocket Inbox (superseded)
 - **2026-10-05: project skeleton.**
   - Created this folder. `model/` is copied from `tinydecide/web_S768`, and `node model/verify.mjs` passes: 0 mismatches, max|dp| 2.9e-6, 392 ms/request in Node.
   - **Rules grammar** is now `<type> <key>: <text> | <options>`. The key names the stored field. The category id is the option lowercased with non-alphanumerics turned into `_`, and it names both the `[section]` and the output file. Parser: `host/rules.mjs`.

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(pocket_inbox)
+project(pocket_notes)
 
 # m5unified 0.2.17 trips a -Werror=maybe-uninitialized false positive in
 # I2C_Class.hpp under some IDF 5.5 toolchains; keep it a warning there.

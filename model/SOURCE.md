@@ -12,3 +12,5 @@ Parity check: `node model/verify.mjs` — must print 0 token-id / pick / span mi
 | `ref.json` | 146237 | `646646c2216b0ad675630d584d3eeb51eec84224b6c1e5cf7c067275806665d6` |
 | `heldout_int8.json` | 16282 | `65d3c51cfce12ed72d0114652fd5214aa1b89f16a2146d446eed16f0ed86b9c6` |
 | `verify.mjs` | 1830 | `fe64b7ea334e896f64fbf9408751ffc92c4cfdc1c74481becf2d58e419b4e685` |
+
+`vocab.bin` is generated from `meta.json` by `node host/pack_model.mjs` (with `firmware/components/tinydecide/td_meta.h`) and embedded in the firmware next to `model.bin`.
