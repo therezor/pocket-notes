@@ -84,8 +84,8 @@ cd firmware && pio run -t upload        # ESP-IDF 5.5 via PlatformIO (pioarduino
 
 One image runs on both the original Cardputer and the ADV. It is 7.5 MB: 6.2 MB of model plus
 code, in a 7.44 MB factory slot, with a 512 KB LittleFS `storage` partition after it. Flashing over
-USB replaces whatever was on the device, M5Launcher included. The image also installs through
-M5Launcher, which applies the partition table.
+USB replaces whatever was on the device, M5Launcher included. Installing through M5Launcher has
+not been tested with this layout (the extra `storage` partition is new).
 
 A model pass takes about 1.8 s for a typical note (45 tokens) and up to about 2.9 s for a long
 one. It runs on both cores while the UI keeps going. When the heap is short, the engine drops the end

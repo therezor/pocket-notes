@@ -5,7 +5,7 @@
 # app works without an SD card); 512 KB holds thousands of short notes.
 #
 # bmorcelli/Launcher writes the firmware to 0x10000 and replaces the running partition table on
-# install, so this layout also works when installed through M5Launcher.
+# install; whether it honours the extra `storage` partition is not tested yet.
 #
 # Name,     Type, SubType,  Offset,    Size,      Flags
 nvs,        data, nvs,      0x9000,    0x6000,
