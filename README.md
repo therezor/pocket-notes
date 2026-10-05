@@ -15,8 +15,9 @@ file. Fully offline. Notes are plain Markdown on the SD card or in the Cardputer
 
 ## Using it
 
-**Home** lists `+ New note`, `Search`, your categories (with open/total counts for
-checklists) and `Settings`.
+**Home** lists `+ New note`, `Search`, your categories and `Settings`. Checklists show
+completed/total (`3/3` when all three are done, `0/3` when none are). The top-right corner shows
+where notes are saved: **On device** or **On SD**.
 
 - `+ New note` (or `n`): type, press Enter, and the **File as** list opens with the model's pick
   highlighted and a percentage beside each category. Enter files the note. Arrows pick another
@@ -29,6 +30,14 @@ checklists) and `Settings`.
 - **Search** (`f`): type words and the results update as you type. Every word must match, and
   matches are highlighted. `f` inside a category searches only that category.
 - On Home, on a category row: `r` renames it, `d` deletes it (its notes move to another category).
+- **Settings > Categories** edits everything `categories.txt` holds:
+  - the name and the **prompt** (the words the model reads for that category, e.g. "something to buy");
+  - checklist on/off, the phone/email and clock-time rules;
+  - the order (move up/down), and delete.
+  `+ New category` adds one.
+
+The footer shows the keys for the current screen, a few at a time, and takes turns when there are
+more.
 
 Keys follow the Cardputer legends: `;` `.` up/down, `,` `/` page, `enter`, `del` back,
 `` ` `` esc. In the editor every key types; `fn+,` / `fn+/` move the cursor.
@@ -51,8 +60,8 @@ sequence number (`#42`) and lists sort newest first. If you enter WiFi in Settin
 
 ### SD card or device memory
 
-`Settings > Storage` chooses where notes live: the SD card (`/notes/`) or the device's own 512 KB
-flash, so the app works with no card at all. `Copy notes to …` copies everything between the two.
+`Settings > Storage` chooses where notes live: the SD card (`/notes/`) or device memory (the
+Cardputer's own 512 KB flash), so the app works with no card at all. `Copy notes to …` copies everything between the two.
 If the SD card is missing at boot, you are asked whether to retry or use device memory.
 
 ## Files
@@ -77,6 +86,10 @@ One image runs on both the original Cardputer and the ADV. It is 7.5 MB: 6.2 MB 
 code, in a 7.44 MB factory slot, with a 512 KB LittleFS `storage` partition after it. Flashing over
 USB replaces whatever was on the device, M5Launcher included. The image also installs through
 M5Launcher, which applies the partition table.
+
+A model pass takes about 1.8 s for a typical note (45 tokens) and up to about 2.9 s for a long
+one. It runs on both cores while the UI keeps going. When the heap is short, the engine drops the end
+of a long note rather than fail.
 
 If the board does not answer the uploader (`No serial data received`), hold **G0** while pressing
 **reset** (or while plugging in USB) to enter download mode, flash, and then press reset.

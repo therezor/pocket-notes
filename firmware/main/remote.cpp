@@ -12,6 +12,8 @@
 #include <driver/usb_serial_jtag_vfs.h>
 #include <esp_heap_caps.h>
 
+#include "ai.h"
+#include "settings.h"
 #include "store.h"
 
 namespace remote {
@@ -115,10 +117,13 @@ static void command(const std::string& l) {
     for (size_t c = 0; c < store::cats.size(); c++) reply("## cat %d %s|%s", (int)c, store::cats[c].name.c_str(), store::cats[c].option());
     for (auto& n : store::notes)
       reply("## note %u cat=%d done=%d pin=%d date=%s %s", (unsigned)n.id, n.cat, n.done, n.pinned, n.date, n.text.c_str());
+    reply("## settings backend=%d ai=%d hide=%d compact=%d learn_from=%u", settings::v.backend, settings::v.ai,
+          settings::v.hideDone, settings::v.compact, (unsigned)settings::v.learnFrom);
     reply("## end");
   } else if (cmd == "heap") {
-    reply("## heap free %u largest %u", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
-          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    reply("## heap free %u largest %u min %u  last pass %u ms %d tokens  %s", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+          (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT), (unsigned)ai::lastMs(), ai::lastTokens(), ai::status());
   }
 }
 

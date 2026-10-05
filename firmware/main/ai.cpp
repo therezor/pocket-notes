@@ -90,7 +90,7 @@ void begin() {
   if (!s_ok) { ESP_LOGE(TAG, "engine init failed"); return; }
   s_in = xQueueCreate(4, sizeof(Job*));
   s_out = xQueueCreate(4, sizeof(Job*));
-  xTaskCreatePinnedToCore(worker, "td", 8192, nullptr, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(worker, "td", 8192, nullptr, 3, nullptr, 1);   // above the UI (1)
   ESP_LOGI(TAG, "engine ready, model %s", TD_MODEL_VARIANT);
 }
 

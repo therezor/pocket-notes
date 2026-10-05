@@ -3,6 +3,7 @@
 key esc esc esc
 heap
 shot home
+# Home is the starting point: the script opens the port without resetting the board.
 # New note from Home: the model suggests, Enter accepts.
 key n
 type buy milk and eggs zzsmoke
@@ -17,6 +18,7 @@ expect buy milk and eggs zzsmoke
 # Checklist inside Todo: add, tick, check, delete.
 key down down
 key enter
+key enter
 type call the plumber zzsmoke
 key enter
 wait 300
@@ -26,6 +28,7 @@ wait 200
 shot list
 dump
 expect done=1 pin=0 date= call the plumber zzsmoke
+heap
 key d
 key enter
 key esc

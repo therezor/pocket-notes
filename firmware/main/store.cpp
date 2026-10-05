@@ -36,7 +36,7 @@ static const char* SD_BASE = "/sd";
 static std::string dirOf(Backend b) { return std::string(b == BK_SD ? SD_BASE : FLASH_BASE) + "/notes"; }
 std::string root() { return dirOf(s_active); }
 uint32_t lastError() { return s_err; }
-const char* backendName(Backend b) { return b == BK_SD ? "SD card" : b == BK_FLASH ? "Device" : "none"; }
+const char* backendName(Backend b) { return b == BK_SD ? "SD card" : b == BK_FLASH ? "Device memory" : "none"; }
 Backend active() { return s_active; }
 bool mounted(Backend b) { return b == BK_SD ? s_sd : b == BK_FLASH ? s_flash : false; }
 
@@ -69,7 +69,7 @@ bool mountSd() {
   const int mosi = M5.getPin(m5::pin_name_t::sd_spi_mosi), cs = M5.getPin(m5::pin_name_t::sd_spi_cs);
   if (sck < 0 || miso < 0 || mosi < 0 || cs < 0) return false;
   sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-  host.slot = SPI3_HOST;               // the display owns SPI2
+  host.slot = SPI2_HOST;               // M5GFX drives the Cardputer display on SPI3
   host.max_freq_khz = 20000;
   if (!s_spiInit) {
     spi_bus_config_t bus = {};
@@ -475,6 +475,35 @@ bool deleteCategory(int ci, int moveTo) {
   for (auto& n : notes) if (n.cat > ci) n.cat--;
   if (moveTo > ci) moveTo--;
   saveCat(moveTo);
+  return saveCategories();
+}
+
+bool setCategoryHint(int ci, const std::string& hint) {
+  if (ci < 0 || ci >= (int)cats.size()) return false;
+  std::string h = trim(hint);
+  for (auto& c : h) if (c == '|') c = '/';   // '|' separates the columns of categories.txt
+  cats[ci].hint = h;
+  return saveCategories();
+}
+
+bool setCategoryFlags(int ci, bool check, bool phone, bool time) {
+  if (ci < 0 || ci >= (int)cats.size()) return false;
+  const bool wasCheck = cats[ci].check;
+  cats[ci].check = check;
+  cats[ci].phone = phone;
+  cats[ci].time = time;
+  if (wasCheck != check) saveCat(ci);   // the .md lines gain or lose their [ ] boxes
+  return saveCategories();
+}
+
+bool moveCategory(int ci, int dir) {
+  const int to = ci + dir;
+  if (ci < 0 || ci >= (int)cats.size() || to < 0 || to >= (int)cats.size()) return false;
+  std::swap(cats[ci], cats[to]);
+  for (auto& n : notes) {
+    if (n.cat == ci) n.cat = (uint8_t)to;
+    else if (n.cat == to) n.cat = (uint8_t)ci;
+  }
   return saveCategories();
 }
 

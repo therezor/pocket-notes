@@ -79,7 +79,12 @@ def main():
         with open(args.script) as f:
             cmds += [l.strip() for l in f if l.strip() and not l.lstrip().startswith("#")]
 
-    ser = serial.Serial(args.port or find_port(), 115200, timeout=0.1)
+    ser = serial.Serial()
+    ser.port = args.port or find_port()
+    ser.baudrate = 115200
+    ser.timeout = 0.1
+    ser.rts = False   # RTS high with DTR low resets the ESP32-S3; keep the lines where they are
+    ser.open()
     time.sleep(0.3)
     ser.reset_input_buffer()
     last_dump = ""

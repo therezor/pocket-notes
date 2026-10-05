@@ -20,14 +20,23 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <esp_log.h>
 static uint32_t now_ms() { return (uint32_t)(esp_timer_get_time() / 1000); }
+static int64_t now_us() { return esp_timer_get_time(); }
 #else
 #include <chrono>
 static uint32_t now_ms() {
   using namespace std::chrono;
   return (uint32_t)duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
+static int64_t now_us() {
+  using namespace std::chrono;
+  return duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+}
 #endif
+
+// Time per phase of the last pass (logged on the device), in microseconds.
+static int64_t g_tMM = 0, g_tAttn = 0, g_tGelu = 0;
 
 namespace td {
 
@@ -186,43 +195,63 @@ static void mmRows(const MM& a, int ra, int rb) {
   }
 }
 
+// parallel(fn, ctx, n): fn(ctx, a, b) over [0, n), split in two halves across both cores.
+typedef void (*RangeFn)(void* ctx, int a, int b);
+
 #ifdef ESP_PLATFORM
-// Persistent worker on the other core; per call it costs two semaphore operations.
+// Persistent worker on the other core; per call it costs two semaphore operations. It runs above
+// the UI task's priority: each job is a few ms, so the UI still gets the gaps between jobs, but the
+// model's half of the work is not time-sliced against screen redraws.
 static SemaphoreHandle_t s_go = nullptr, s_done = nullptr;
-static MM s_job;
+static RangeFn s_fn = nullptr;
+static void* s_ctx = nullptr;
 static int s_ja = 0, s_jb = 0;
 static int s_core = -1;
 
 static void worker(void*) {
   for (;;) {
     xSemaphoreTake(s_go, portMAX_DELAY);
-    mmRows(s_job, s_ja, s_jb);
+    s_fn(s_ctx, s_ja, s_jb);
     xSemaphoreGive(s_done);
   }
 }
 
-static void mm(const MM& a, int r1) {
+static void parallel(RangeFn fn, void* ctx, int n) {
   if (!s_go) {
     s_go = xSemaphoreCreateBinary();
     s_done = xSemaphoreCreateBinary();
     s_core = xPortGetCoreID() == 0 ? 1 : 0;
-    // Same priority as the UI task, so the UI keeps time-slicing on that core during inference.
-    xTaskCreatePinnedToCore(worker, "td_mm", 3072, nullptr, 1, nullptr, s_core);
+    xTaskCreatePinnedToCore(worker, "td_mm", 3072, nullptr, 3, nullptr, s_core);
   }
-  if (xPortGetCoreID() == s_core) { mmRows(a, a.r0, r1); return; }   // caller moved cores: run alone
-  const int split = a.r0 + (r1 - a.r0) / 2;
-  s_job = a; s_ja = split; s_jb = r1;
+  if (xPortGetCoreID() == s_core || n < 2) { fn(ctx, 0, n); return; }   // caller moved cores: run alone
+  const int split = n / 2;
+  s_fn = fn; s_ctx = ctx; s_ja = split; s_jb = n;
   xSemaphoreGive(s_go);
-  mmRows(a, a.r0, split);
+  fn(ctx, 0, split);
   xSemaphoreTake(s_done, portMAX_DELAY);
 }
 static void* scratchAlloc(size_t n) { return heap_caps_aligned_alloc(16, n, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL); }
 static void scratchFree(void* p) { heap_caps_free(p); }
+// Leave the rest of the app this much heap while a pass runs (UI strings, SD buffers, WiFi).
+static bool reserveOk() { return heap_caps_get_free_size(MALLOC_CAP_8BIT) >= 24 * 1024; }
 #else
-static void mm(const MM& a, int r1) { mmRows(a, a.r0, r1); }
+static bool reserveOk() { return true; }
+static void parallel(RangeFn fn, void* ctx, int n) { fn(ctx, 0, n); }
 static void* scratchAlloc(size_t n) { return aligned_alloc(16, (n + 15) & ~(size_t)15); }
 static void scratchFree(void* p) { free(p); }
 #endif
+
+static void mmRange(void* ctx, int a, int b) {
+  const MM& m = *(const MM*)ctx;
+  mmRows(m, m.r0 + a, m.r0 + b);
+}
+static void mmRun(const MM& a, int r1) { parallel(mmRange, (void*)&a, r1 - a.r0); }
+
+static void mm(const MM& a, int r1) {
+  const int64_t t0 = now_us();
+  mmRun(a, r1);
+  g_tMM += now_us() - t0;
+}
 
 static void layernorm(float* x, int d, const float* w, const float* b, float eps) {
   float m = 0;
@@ -235,7 +264,24 @@ static void layernorm(float* x, int d, const float* w, const float* b, float eps
   for (int i = 0; i < d; i++) x[i] = (x[i] - m) * r * w[i] + b[i];
 }
 
-static inline float gelu(float x) { return 0.5f * x * (1.0f + erff(x * 0.70710678118654752f)); }
+// Exact (erf) GELU from a table with linear interpolation: newlib's erff was a third of a pass.
+// Step 1/64 over [-8, 8]; the interpolation error is below 3e-5.
+static constexpr int GELU_N = 1024;
+static float g_gelu[GELU_N + 1];
+static void geluInit() {
+  for (int i = 0; i <= GELU_N; i++) {
+    const double x = -8.0 + 16.0 * i / GELU_N;
+    g_gelu[i] = (float)(0.5 * x * (1.0 + erf(x * 0.70710678118654752)));
+  }
+}
+static inline float gelu(float x) {
+  if (x >= 8.0f) return x;
+  if (x <= -8.0f) return 0.0f;
+  const float f = (x + 8.0f) * (GELU_N / 16.0f);
+  const int i = (int)f;
+  const float w = f - (float)i;
+  return g_gelu[i] + (g_gelu[i + 1] - g_gelu[i]) * w;
+}
 
 // y = W v for an int8 head matrix (one f32 scale per row).
 static void mvI8(const tdm::I8& w, const float* v, float* y) {
@@ -285,10 +331,11 @@ static int questionBlock(const char* question, const char* const* options, int n
   return m;
 }
 
-static bool buildRequest(const char* text, const char* question, const char* const* options, int n, Req& r) {
+static bool buildRequest(const char* text, const char* question, const char* const* options, int n, Req& r,
+                         int stateMax) {
   uint16_t st[tdm::TS_MAX];
   int ns = tokenize(text, st, tdm::TS_MAX);
-  const int keep = ns < STATE_MAX ? ns : STATE_MAX;
+  const int keep = ns < stateMax ? ns : stateMax;
   r.truncated = ns > keep;
   r.ids[0] = tdm::SP_STATE; r.pos[0] = 0;
   for (int i = 0; i < keep; i++) { r.ids[1 + i] = st[i]; r.pos[1 + i] = (uint16_t)(1 + i); }
@@ -313,37 +360,90 @@ int requestTokens(const char* question, const char* const* options, int n) {
 //  Encoder
 // ============================================================================
 
-size_t scratchBytes(int T) {
-  const size_t f = sizeof(float);
-  return (size_t)T * (tdm::D * f            // x
-                      + 3 * tdm::DHEAD * f    // Qh, Kh, Vh (also the embedding / FFN chunk buffers)
-                      + tdm::D                // xq
-                      + tdm::DHEAD            // hq
-                      + (tdm::D / 32) * f     // xs
-                      + (tdm::DHEAD / 32) * f // hs
-                      + f)                    // attention scores
-         + 64;
+
+// Three blocks rather than one, so the scratch fits a fragmented heap (no PSRAM on the Cardputer):
+//   A: x [T, D] f32   B: Qh, Kh, Vh [T, 64] f32   C: xq, hq int8 + block scales + scores.
+struct Scratch { uint8_t* a; uint8_t* q; uint8_t* k; uint8_t* v; uint8_t* c; };
+
+static size_t bytesA(int T) { return (size_t)T * tdm::D * sizeof(float); }
+static size_t bytesB(int T) { return (size_t)T * tdm::DHEAD * sizeof(float); }   // each of Q, K, V
+static size_t bytesC(int T) {
+  return (size_t)T * (tdm::D + tdm::DHEAD + (tdm::D / 32 + tdm::DHEAD / 32 + 2) * sizeof(float));
 }
 
-static void encode(const Req& r, uint8_t* mem) {
+size_t scratchBytes(int T) { return bytesA(T) + 3 * bytesB(T) + bytesC(T); }
+
+// GELU over one FFN chunk for tokens [a, b), then int8 for the fc2 slice.
+struct GeluCtx { float* Hc; int8_t* hq; float* hs; };
+static void geluRange(void* ctx, int a, int b) {
+  const GeluCtx& g = *(const GeluCtx*)ctx;
+  const int DHd = tdm::DHEAD;
+  for (int t = a; t < b; t++) {
+    float* hrow = g.Hc + (size_t)t * DHd;
+    for (int c = 0; c < DHd; c++) hrow[c] = gelu(hrow[c]);
+    quant8(hrow, g.hq + (size_t)t * DHd, g.hs + (size_t)t * (DHd / 32), DHd);
+  }
+}
+
+// One head's attention for query rows [a, b): softmax(q k / sqrt(64)) v, written as int8 to hq.
+struct AttnCtx {
+  const float *Qh, *Kh, *Vh;
+  int8_t* hq;
+  float* hs;
+  float* sc;      // [2, T] scores, one row per core
+  int T, S;
+  float scale;
+};
+
+static void attnRange(void* ctx, int a, int b) {
+  const AttnCtx& c = *(const AttnCtx*)ctx;
+  const int DHd = tdm::DHEAD;
+  float* sc = c.sc + (a == 0 ? 0 : c.T);
+  float out[64];
+  for (int i = a; i < b; i++) {
+    // fusion "all", one question: state tokens see the state; question tokens see everything.
+    const int nk = i < c.S ? c.S : c.T;
+    const float* q = c.Qh + (size_t)i * DHd;
+    float mx = -1e30f;
+    for (int j = 0; j < nk; j++) {
+      const float* k = c.Kh + (size_t)j * DHd;
+      float s = 0;
+      for (int d = 0; d < DHd; d++) s += q[d] * k[d];
+      s *= c.scale;
+      sc[j] = s;
+      if (s > mx) mx = s;
+    }
+    float z = 0;
+    for (int j = 0; j < nk; j++) { sc[j] = expf(sc[j] - mx); z += sc[j]; }
+    const float iz = 1.0f / z;
+    for (int d = 0; d < DHd; d++) out[d] = 0;
+    for (int j = 0; j < nk; j++) {
+      const float p = sc[j] * iz;
+      const float* v = c.Vh + (size_t)j * DHd;
+      for (int d = 0; d < DHd; d++) out[d] += p * v[d];
+    }
+    quant8(out, c.hq + (size_t)i * DHd, c.hs + (size_t)i * (DHd / 32), DHd);
+  }
+}
+
+static void encode(const Req& r, const Scratch& m) {
   const int T = r.T, S = r.S, D = tdm::D, DHd = tdm::DHEAD, E = tdm::EMB;
-  float* x  = (float*)mem;                                  // [T, D]
-  float* Qh = x + (size_t)T * D;                            // [T, 64]
-  float* Kh = Qh + (size_t)T * DHd;
-  float* Vh = Kh + (size_t)T * DHd;
-  int8_t* xq = (int8_t*)(Vh + (size_t)T * DHd);             // [T, D]   (16-aligned: offsets are multiples of 64)
+  float* x  = (float*)m.a;                                  // [T, D]
+  float* Qh = (float*)m.q;                                  // [T, 64] each
+  float* Kh = (float*)m.k;
+  float* Vh = (float*)m.v;
+  int8_t* xq = (int8_t*)m.c;                                // [T, D]   (16-aligned: offsets are multiples of 64)
   int8_t* hq = xq + (size_t)T * D;                          // [T, 64]
   float* xs = (float*)(hq + (size_t)T * DHd);               // [T, D/32]
   float* hs = xs + (size_t)T * (D / 32);                    // [T, 2]
-  float* sc = hs + (size_t)T * (DHd / 32);                  // [T]
+  float* sc = hs + (size_t)T * (DHd / 32);                  // [2, T]
 
   // ---- embeddings: word (Q4) + position (int8) + type0, LayerNorm, project to D
-  float* raw = Qh;                                          // [T, E] spans Qh..Kh
   const int8_t* P = (const int8_t*)(g_m + tdm::POS.q);
   const float* Ps = F(tdm::POS.sc);
   const float* t0 = F(tdm::TYPE0);
   for (int t = 0; t < T; t++) {
-    float* o = raw + (size_t)t * E;
+    float o[tdm::EMB];
     const int nb = E / 32;
     const uint8_t* nib = g_m + tdm::WORD.nib + (size_t)r.ids[t] * nb * 16;
     const uint8_t* ws = g_m + tdm::WORD.sc + (size_t)r.ids[t] * nb * 2;
@@ -374,31 +474,10 @@ static void encode(const Req& r, uint8_t* mem) {
       mm({&B.q, 0, D / 32, xq, D, xs, D / 32, T, Qh, DHd, F(B.qb), false, r0}, r1);
       mm({&B.k, 0, D / 32, xq, D, xs, D / 32, T, Kh, DHd, F(B.kb), false, r0}, r1);
       mm({&B.v, 0, D / 32, xq, D, xs, D / 32, T, Vh, DHd, F(B.vb), false, r0}, r1);
-      float out[64];
-      for (int i = 0; i < T; i++) {
-        // fusion "all", one question: state tokens see the state; question tokens see everything.
-        const int nk = i < S ? S : T;
-        const float* q = Qh + (size_t)i * DHd;
-        float mx = -1e30f;
-        for (int j = 0; j < nk; j++) {
-          const float* k = Kh + (size_t)j * DHd;
-          float s = 0;
-          for (int c = 0; c < DHd; c++) s += q[c] * k[c];
-          s *= scale;
-          sc[j] = s;
-          if (s > mx) mx = s;
-        }
-        float z = 0;
-        for (int j = 0; j < nk; j++) { sc[j] = expf(sc[j] - mx); z += sc[j]; }
-        const float iz = 1.0f / z;
-        for (int c = 0; c < DHd; c++) out[c] = 0;
-        for (int j = 0; j < nk; j++) {
-          const float p = sc[j] * iz;
-          const float* v = Vh + (size_t)j * DHd;
-          for (int c = 0; c < DHd; c++) out[c] += p * v[c];
-        }
-        quant8(out, hq + (size_t)i * DHd, hs + (size_t)i * (DHd / 32), DHd);
-      }
+      const int64_t ta = now_us();
+      AttnCtx ac{Qh, Kh, Vh, hq, hs, sc, T, S, scale};
+      parallel(attnRange, &ac, T);
+      g_tAttn += now_us() - ta;
       mm({&B.o, r0 / 32, DHd / 32, hq, DHd, hs, DHd / 32, T, x, D, h == 0 ? F(B.ob) : nullptr, true, 0}, D);
     }
     for (int t = 0; t < T; t++) layernorm(x + (size_t)t * D, D, F(B.ln1w), F(B.ln1b), tdm::LN_EPS);
@@ -408,11 +487,10 @@ static void encode(const Req& r, uint8_t* mem) {
     float* Hc = Qh;
     for (int c0 = 0; c0 < tdm::FFN; c0 += DHd) {
       mm({&B.fc, 0, D / 32, xq, D, xs, D / 32, T, Hc, DHd, F(B.fcb), false, c0}, c0 + DHd);
-      for (int t = 0; t < T; t++) {
-        float* hrow = Hc + (size_t)t * DHd;
-        for (int c = 0; c < DHd; c++) hrow[c] = gelu(hrow[c]);
-        quant8(hrow, hq + (size_t)t * DHd, hs + (size_t)t * (DHd / 32), DHd);
-      }
+      const int64_t tg = now_us();
+      GeluCtx gc{Hc, hq, hs};
+      parallel(geluRange, &gc, T);
+      g_tGelu += now_us() - tg;
       mm({&B.fc2, c0 / 32, DHd / 32, hq, DHd, hs, DHd / 32, T, x, D, c0 == 0 ? F(B.fc2b) : nullptr, true, 0}, D);
     }
     for (int t = 0; t < T; t++) layernorm(x + (size_t)t * D, D, F(B.ln2w), F(B.ln2b), tdm::LN_EPS);
@@ -430,6 +508,7 @@ bool init(const uint8_t* model, size_t model_len, const uint8_t* vocab, size_t v
   memcpy(&n, vocab + 4, 4);
   memcpy(&blob, vocab + 8, 4);
   if (12 + 4 * (size_t)(n + 1) + 2 * (size_t)n + blob > vocab_len) return false;
+  geluInit();
   g_m = model;
   g_v = vocab;
   g_vn = n;
@@ -454,13 +533,33 @@ bool choice(const char* text, const char* question, const char* const* options, 
   if (!g_m || n < 1 || n > MAX_OPTIONS) return false;
   const uint32_t t0 = now_ms();
   static Req r;                                   // ~1.3 KB; one inference at a time
-  if (!buildRequest(text, question, options, n, r)) return false;
-  uint8_t* mem = (uint8_t*)scratchAlloc(scratchBytes(r.T));
-  if (!mem) return false;
+  // When the heap is too fragmented for the whole note, drop its tail and try again: the first
+  // ~20 words decide the category just as well.
+  Scratch mem = {};
+  for (int stateMax = STATE_MAX;; stateMax -= 8) {
+    if (!buildRequest(text, question, options, n, r, stateMax)) return false;
+    mem.a = (uint8_t*)scratchAlloc(bytesA(r.T));   // largest first
+    mem.q = mem.a ? (uint8_t*)scratchAlloc(bytesB(r.T)) : nullptr;
+    mem.k = mem.q ? (uint8_t*)scratchAlloc(bytesB(r.T)) : nullptr;
+    mem.v = mem.k ? (uint8_t*)scratchAlloc(bytesB(r.T)) : nullptr;
+    mem.c = mem.v ? (uint8_t*)scratchAlloc(bytesC(r.T)) : nullptr;
+    if (mem.c && reserveOk()) break;
+    if (mem.c) scratchFree(mem.c);
+    for (uint8_t* p : {mem.a, mem.q, mem.k, mem.v}) if (p) scratchFree(p);
+    if (stateMax <= 8) return false;
+  }
+  g_tMM = g_tAttn = g_tGelu = 0;
+  const int64_t te = now_us();
   encode(r, mem);
+#ifdef ESP_PLATFORM
+  ESP_LOGI("td", "T=%d encode %lld ms: matmul %lld, attention %lld, gelu %lld", r.T, (now_us() - te) / 1000,
+           g_tMM / 1000, g_tAttn / 1000, g_tGelu / 1000);
+#else
+  (void)te;
+#endif
 
   const int D = tdm::D, DH = tdm::DH;
-  float* x = (float*)mem;
+  float* x = (float*)mem.a;
   const float* nw = F(tdm::H_NORM_W);
   const float* nb = F(tdm::H_NORM_B);
   float ha[256], ho[256], qa[128], ov[128];
@@ -491,7 +590,7 @@ bool choice(const char* text, const char* question, const char* const* options, 
       L[i] += protos->lam * tdm::BETA[bucketK(protos->cnt[i])] * cs / Tt;
     }
   }
-  scratchFree(mem);
+  for (uint8_t* p : {mem.c, mem.v, mem.k, mem.q, mem.a}) scratchFree(p);
 
   float mx = L[0];
   for (int i = 1; i < n; i++) if (L[i] > mx) mx = L[i];

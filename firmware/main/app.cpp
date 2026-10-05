@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -38,7 +39,7 @@ using store::notes;
 
 namespace app {
 
-enum Screen : uint8_t { HOME, LIST, NOTE, EDIT, PICK, SEARCH, SETTINGS, CONFIRM, BOOTSD, INFO };
+enum Screen : uint8_t { HOME, LIST, NOTE, EDIT, PICK, SEARCH, SETTINGS, CONFIRM, BOOTSD, INFO, CATS, CATEDIT };
 
 static Screen s_screen = HOME;
 static M5Canvas* s_cv = nullptr;
@@ -74,25 +75,25 @@ static std::string lower(const std::string& s) {
   return o;
 }
 
-// Footer hint on the left, an optional dim status on the right.
-static void footer(const char* hint, const char* right = nullptr) {
+// Footer key hints. The footer holds ~29 characters in the normal font, so screens with more keys
+// pass several short pages that take turns every 2.5 s; `status` (e.g. "learning 3/40") is one
+// more page when set. A toast replaces the footer for 2 s.
+static void footer(std::initializer_list<const char*> pages, const char* status = nullptr) {
   if (s_toastUntil && millis() < s_toastUntil) {
     ui::footer(s_toast);
     return;
   }
   s_toastUntil = 0;
-  ui::footer(hint);
-  if (right && right[0]) {
-    const int y = ui::M.h - ui::M.footerH;
-    ui::textRight(ui::M.w - ui::M.pad * 2, y + (ui::M.footerH - ui::M.lineH) / 2, right, ui::C_MUTE, ui::C_HDR_BG);
-  }
+  std::vector<const char*> p(pages);
+  if (status && status[0]) p.push_back(status);
+  ui::footer(p[(millis() / 2500) % p.size()]);
 }
 
 static void headerRight(const char* title) {
   char hm[6];
   if (clk::hhmm(hm)) { ui::header(title, hm, ui::C_DIM); return; }
   const bool sd = store::active() == store::BK_SD;
-  ui::header(title, sd ? "SD" : "DEV", sd ? ui::C_OK : ui::C_DIM);
+  ui::header(title, sd ? "On SD" : "On device", sd ? ui::C_OK : ui::C_DIM);
 }
 
 static const char* spinner() {
@@ -113,7 +114,7 @@ static std::vector<int> s_list;      // indices into notes, display order
 static uint32_t s_noteId = 0;
 static Screen s_noteBack = LIST;
 // Editor
-enum EditFor : uint8_t { E_NEW_HOME, E_NEW_IN_CAT, E_EDIT_NOTE, E_NEW_CAT, E_RENAME_CAT, E_WIFI_SSID, E_WIFI_PASS };
+enum EditFor : uint8_t { E_NEW_HOME, E_NEW_IN_CAT, E_EDIT_NOTE, E_NEW_CAT, E_RENAME_CAT, E_CAT_HINT, E_WIFI_SSID, E_WIFI_PASS };
 static EditFor s_editFor = E_NEW_HOME;
 static std::string s_edit;
 static int s_cursor = 0, s_editTop = 0;
@@ -146,6 +147,9 @@ static std::string s_infoTitle, s_infoText;
 static Screen s_infoBack = SETTINGS;
 // Boot SD prompt
 static int s_bootIdx = 0;
+// Category manager (Settings > Categories)
+static int s_catsIdx = 0, s_catsScroll = 0;
+static int s_ceCat = 0, s_ceIdx = 0, s_ceScroll = 0;
 
 static void go(Screen s) { s_screen = s; }
 static void refreshShown();
@@ -192,7 +196,7 @@ static void drawHome() {
   for (size_t i = 0; i < cats.size(); i++) {
     int open = 0, n = store::countIn((int)i, &open);
     char b[16];
-    if (cats[i].check) snprintf(b, sizeof(b), "%d/%d", open, n);
+    if (cats[i].check) snprintf(b, sizeof(b), "%d/%d", n - open, n);   // completed / total
     else snprintf(b, sizeof(b), "%d", n);
     right[i] = b;
     ui::MenuItem it{cats[i].name.c_str()};
@@ -202,7 +206,8 @@ static void drawHome() {
   items.push_back({"Settings", nullptr, -1, ui::C_DIM});
   ui::menu(ui::M.bodyY, items.data(), (int)items.size(), s_homeIdx, s_homeScroll);
   const bool onCat = s_homeIdx >= 2 && s_homeIdx < 2 + (int)cats.size();
-  footer(onCat ? "enter open  r rename  d del" : "\x18\x19 move  enter open  f find", ai::status());
+  if (onCat) footer({"enter open  r rename", "d delete  n new  f find"}, ai::status());
+  else footer({"\x18\x19 move  enter open", "n new note  f search"}, ai::status());
 }
 
 static void refreshList();
@@ -289,7 +294,7 @@ static void drawList() {
   const store::Category& c = cats[s_cat];
   int open = 0, n = store::countIn(s_cat, &open);
   char right[24];
-  if (c.check) snprintf(right, sizeof(right), "%d/%d", open, n);
+  if (c.check) snprintf(right, sizeof(right), "%d/%d", n - open, n);   // completed / total
   else snprintf(right, sizeof(right), "%d", n);
   ui::header(c.name.c_str(), right, ui::C_DIM);
   std::vector<std::string> labels(s_list.size());
@@ -307,9 +312,9 @@ static void drawList() {
   ui::menu(ui::M.bodyY, items.data(), (int)items.size(), s_listIdx, s_listScroll);
   if (s_list.empty() && c.check && settings::v.hideDone && n > 0)
     ui::text(ui::M.pad * 2, ui::M.bodyY + ui::M.rowH * 2, "completed items hidden (h)", ui::C_MUTE);
-  if (selectedNote() < 0) footer("enter add  f find  esc back", ai::status());
-  else if (c.check) footer("spc done  p pin  m move  d del  h hide");
-  else footer("enter open  p pin  m move  d del");
+  if (selectedNote() < 0) footer({"enter add  f find  esc back"}, ai::status());
+  else if (c.check) footer({"space done  enter open", "e edit  m move  p pin", "d delete  h hide done"});
+  else footer({"enter open  e edit  m move", "p pin  d delete  f find"});
 }
 
 static void openNote(int idx, Screen back) {
@@ -408,7 +413,8 @@ static void drawNote() {
     y += ui::M.lineH + ui::M.pad;
   }
   ui::wrap(ui::M.pad * 2, y, ui::charsFor(ui::M.w - ui::M.pad * 4), view(n.text).c_str(), n.done ? ui::C_DIM : ui::C_FG);
-  footer(cats[n.cat].check ? "spc done  e edit  m move  d del" : "e edit  m move  p pin  d del");
+  if (cats[n.cat].check) footer({"space done  e edit  m move", "p pin  d delete  esc back"});
+  else footer({"e edit  m move  p pin", "d delete  esc back"});
 }
 
 static void keyNote(const KeyEvent& k) {
@@ -454,7 +460,7 @@ static void drawEdit() {
   const int cy = ui::M.bodyY + ui::M.pad + (curRow - s_editTop) * ui::M.lineH;
   if ((millis() / 500) % 2 == 0) ui::cv->fillRect(cx, cy, 2 * ui::M.scale, ui::M.lineH, ui::C_HDR_FG);
   if (!s_editErr.empty()) ui::text(x0, ui::M.bodyY + boxH + ui::M.pad, s_editErr.c_str(), ui::C_ERR);
-  footer("enter save  esc cancel  fn+,/ cursor");
+  footer({"enter save  esc cancel", "fn+, fn+/ move cursor"});
 }
 
 static void finishNewNote(const std::string& text, int cat) {
@@ -500,10 +506,21 @@ static void submitEdit() {
       int c = store::addCategory(t);
       if (c < 0) { s_editErr = t.empty() ? "Type a name" : "Name taken or 16 categories max"; return; }
       ai::categoriesChanged();
-      // From the picker: file the pending note in the new category right away.
-      if (s_pickFor == P_FILE_NEW && !s_pending.empty()) { finishNewNote(s_pending, c); s_pending.clear(); go(HOME); }
-      else if (s_pickFor == P_MOVE) { int i = store::find(s_noteId); if (i >= 0) store::moveNote(i, c); go(s_pickBack); refreshShown(); }
-      else go(HOME);
+      if (s_editBack == CATS) {          // Settings > Categories: straight into its editor
+        s_ceCat = c; s_ceIdx = 0; s_ceScroll = 0; s_catsIdx = c;
+        go(CATEDIT);
+      } else if (s_editBack == PICK && s_pickFor == P_FILE_NEW && !s_pending.empty()) {
+        finishNewNote(s_pending, c);     // from the picker: file the pending note there right away
+        s_pending.clear();
+        go(HOME);
+      } else if (s_editBack == PICK && s_pickFor == P_MOVE) {
+        int i = store::find(s_noteId);
+        if (i >= 0) store::moveNote(i, c);
+        go(s_pickBack);
+        refreshShown();
+      } else {
+        go(HOME);
+      }
       return;
     }
     case E_RENAME_CAT:
@@ -511,7 +528,12 @@ static void submitEdit() {
         if (!store::renameCategory(s_cat, t)) { s_editErr = "Name taken"; return; }
         ai::categoriesChanged();
       }
-      go(HOME);
+      go(s_editBack == CATEDIT ? CATEDIT : HOME);
+      return;
+    case E_CAT_HINT:
+      store::setCategoryHint(s_ceCat, t);
+      ai::categoriesChanged();
+      go(CATEDIT);
       return;
     case E_WIFI_SSID:
       settings::v.wifiSsid = t;
@@ -604,7 +626,7 @@ static void drawPick() {
   }
   items.push_back({"+ New category", nullptr, -1, ui::C_HDR_FG});
   ui::menu(ui::M.bodyY, items.data(), (int)items.size(), s_pickIdx, s_pickScroll);
-  footer("\x18\x19 choose  enter file  esc back");
+  footer({"\x18\x19 choose  enter file", "esc back to the text"});
 }
 
 static void keyPick(const KeyEvent& k) {
@@ -747,7 +769,7 @@ static void drawSearch() {
   }
   if (bar) ui::scrollbar(ui::M.w - 2 * ui::M.scale - ui::M.pad, ly, rows * rh, n, rows, s_searchScroll);
   if (!s_query.empty() && n == 0) ui::text(x0, ly + ui::M.pad, "no matches", ui::C_MUTE);
-  footer("type to find  \x18\x19 move  enter open");
+  footer({"type to find  enter open", "\x18\x19 move  esc back"});
 }
 
 static void keySearch(const KeyEvent& k) {
@@ -770,7 +792,7 @@ static void keySearch(const KeyEvent& k) {
 //  Settings
 // ============================================================================
 
-enum SetItem { S_STORAGE, S_COPY, S_FONT, S_AI, S_HIDE, S_WIFI, S_CLOCK, S_UTC, S_FORGET, S_ABOUT, S_COUNT };
+enum SetItem { S_CATS, S_STORAGE, S_COPY, S_FONT, S_AI, S_HIDE, S_WIFI, S_CLOCK, S_UTC, S_FORGET, S_ABOUT, S_COUNT };
 
 static store::Backend other() { return store::active() == store::BK_SD ? store::BK_FLASH : store::BK_SD; }
 
@@ -780,9 +802,11 @@ static void drawSettings() {
   std::string lab[S_COUNT];
   uint64_t used, total;
   char b[48];
+  lab[S_CATS] = "Categories";
+  val[S_CATS] = std::to_string(cats.size());
   lab[S_STORAGE] = "Storage";
   val[S_STORAGE] = store::backendName(store::active());
-  lab[S_COPY] = std::string("Copy notes to ") + (other() == store::BK_SD ? "SD" : "device");
+  lab[S_COPY] = std::string("Copy notes to ") + (other() == store::BK_SD ? "SD card" : "device");
   val[S_COPY] = store::mounted(other()) ? "" : "no card";
   lab[S_FONT] = "Font";
   val[S_FONT] = settings::v.compact ? "compact" : "normal";
@@ -814,7 +838,8 @@ static void drawSettings() {
     items[i].rightCol = ui::C_HDR_FG;
   }
   ui::menu(ui::M.bodyY, items, S_COUNT, s_setIdx, s_setScroll);
-  footer(s_setIdx == S_UTC ? ", / adjust  esc back" : "\x18\x19 move  enter change  esc back");
+  if (s_setIdx == S_UTC) footer({", / adjust  esc back"});
+  else footer({"\x18\x19 move  enter change", "esc back"});
 }
 
 static void switchBackend(store::Backend to) {
@@ -838,6 +863,11 @@ static void keySettings(const KeyEvent& k) {
   }
   if (!k.enter && !k.space) return;
   switch (s_setIdx) {
+    case S_CATS:
+      s_catsIdx = 0;
+      s_catsScroll = 0;
+      go(CATS);
+      break;
     case S_STORAGE: {
       const store::Backend to = other();
       confirm("Storage", std::string("Keep notes on ") + (to == store::BK_SD ? "the SD card" : "device memory") +
@@ -901,13 +931,126 @@ static void keySettings(const KeyEvent& k) {
 }
 
 // ============================================================================
+//  Settings > Categories: list, then one category's fields
+// ============================================================================
+
+static void drawCats() {
+  ui::header("Categories", (std::to_string(cats.size()) + "/16").c_str(), ui::C_DIM);
+  std::vector<std::string> right(cats.size());
+  std::vector<ui::MenuItem> items;
+  for (size_t i = 0; i < cats.size(); i++) {
+    std::string f;
+    if (cats[i].check) f += "[x]";
+    if (cats[i].phone) f += f.empty() ? "tel" : " tel";
+    if (cats[i].time) f += f.empty() ? "time" : " time";
+    right[i] = f;
+    ui::MenuItem it{cats[i].name.c_str()};
+    it.right = right[i].c_str();
+    items.push_back(it);
+  }
+  items.push_back({"+ New category", nullptr, -1, ui::C_HDR_FG});
+  ui::menu(ui::M.bodyY, items.data(), (int)items.size(), s_catsIdx, s_catsScroll);
+  footer({"\x18\x19 move  enter edit", "esc back"});
+}
+
+static void keyCats(const KeyEvent& k) {
+  const int n = (int)cats.size() + 1;
+  if (k.up) s_catsIdx = (s_catsIdx + n - 1) % n;
+  else if (k.down) s_catsIdx = (s_catsIdx + 1) % n;
+  else if (k.esc || (k.back && !k.repeat)) go(SETTINGS);
+  else if (k.enter) {
+    if (s_catsIdx == n - 1) {
+      if (cats.size() >= 16) { toast("16 categories max"); return; }
+      openEditor(E_NEW_CAT, "New category", "", 24);
+    } else {
+      s_ceCat = s_catsIdx; s_ceIdx = 0; s_ceScroll = 0;
+      go(CATEDIT);
+    }
+  }
+}
+
+enum CatField { CF_NAME, CF_PROMPT, CF_CHECK, CF_PHONE, CF_TIME, CF_UP, CF_DOWN, CF_DELETE, CF_COUNT };
+
+static void drawCatEdit() {
+  if (s_ceCat >= (int)cats.size()) { go(CATS); return; }
+  const store::Category& c = cats[s_ceCat];
+  const int cnt = store::countIn(s_ceCat);
+  ui::header(c.name.c_str(), (std::to_string(cnt) + (cnt == 1 ? " note" : " notes")).c_str(), ui::C_DIM);
+  std::string prompt = c.hint.empty() ? "(name)" : view(c.hint);
+  std::string name = view(c.name);
+  const char* lab[CF_COUNT] = {"Name", "Prompt", "Checklist", "Phone/email rule", "Clock time rule",
+                               "Move up", "Move down", "Delete category"};
+  const char* val[CF_COUNT] = {name.c_str(), prompt.c_str(), c.check ? "on" : "off", c.phone ? "on" : "off",
+                               c.time ? "on" : "off", "", "", ""};
+  ui::MenuItem items[CF_COUNT];
+  for (int i = 0; i < CF_COUNT; i++) {
+    items[i] = ui::MenuItem{lab[i]};
+    items[i].right = val[i];
+    items[i].rightCol = ui::C_HDR_FG;
+  }
+  items[CF_DELETE].accent = ui::C_ERR;
+  ui::menu(ui::M.bodyY, items, CF_COUNT, s_ceIdx, s_ceScroll);
+  switch (s_ceIdx) {
+    case CF_PROMPT: footer({"what the AI reads for it", "enter edit  esc back"}); break;
+    case CF_PHONE:  footer({"phone/email -> this one", "enter toggle  esc back"}); break;
+    case CF_TIME:   footer({"clock times -> this one", "enter toggle  esc back"}); break;
+    case CF_CHECK:  footer({"[ ] / [x] items", "enter toggle  esc back"}); break;
+    default:        footer({"\x18\x19 move  enter change", "esc back"}); break;
+  }
+}
+
+static void keyCatEdit(const KeyEvent& k) {
+  if (s_ceCat >= (int)cats.size()) { go(CATS); return; }
+  if (k.up) { s_ceIdx = (s_ceIdx + CF_COUNT - 1) % CF_COUNT; return; }
+  if (k.down) { s_ceIdx = (s_ceIdx + 1) % CF_COUNT; return; }
+  if (k.esc || (k.back && !k.repeat)) { s_catsIdx = s_ceCat; go(CATS); return; }
+  if (!k.enter && !k.space) return;
+  store::Category& c = cats[s_ceCat];
+  switch (s_ceIdx) {
+    case CF_NAME:
+      s_cat = s_ceCat;
+      openEditor(E_RENAME_CAT, "Category name", c.name, 24);
+      break;
+    case CF_PROMPT:
+      openEditor(E_CAT_HINT, "Prompt for the AI", c.hint.empty() ? lower(c.name) : c.hint, 48);
+      break;
+    case CF_CHECK: store::setCategoryFlags(s_ceCat, !c.check, c.phone, c.time); break;
+    case CF_PHONE: store::setCategoryFlags(s_ceCat, c.check, !c.phone, c.time); break;
+    case CF_TIME:  store::setCategoryFlags(s_ceCat, c.check, c.phone, !c.time); break;
+    case CF_UP:
+    case CF_DOWN: {
+      const int dir = s_ceIdx == CF_UP ? -1 : 1;
+      if (store::moveCategory(s_ceCat, dir)) { s_ceCat += dir; ai::categoriesChanged(); }
+      break;
+    }
+    case CF_DELETE: {
+      if (cats.size() <= 1) { toast("Keep at least one"); break; }
+      const int ci = s_ceCat;
+      int to = (int)cats.size() - 1;
+      if (to == ci) to = ci - 1;
+      const int cnt = store::countIn(ci);
+      std::string msg = "Delete \"" + c.name + "\"?";
+      if (cnt) msg += " Its " + std::to_string(cnt) + " notes move to " + cats[to].name + ".";
+      confirm("Delete category", msg, [ci, to]() {
+        store::deleteCategory(ci, to);
+        ai::categoriesChanged();
+        s_catsIdx = 0;
+        s_confirmBack = CATS;
+        toast("Category deleted");
+      });
+      break;
+    }
+  }
+}
+
+// ============================================================================
 //  Confirm / info / boot prompt
 // ============================================================================
 
 static void drawConfirm() {
   ui::header(s_confirmTitle.c_str(), nullptr);
   ui::wrap(ui::M.pad * 2, ui::M.bodyY + ui::M.pad, ui::charsFor(ui::M.w - ui::M.pad * 4), s_confirmText.c_str(), ui::C_FG);
-  footer("enter yes  esc no");
+  footer({"enter yes  esc no"});
 }
 
 // After any change to the notes, list and search indices are stale; rebuild the one shown.
@@ -932,7 +1075,7 @@ static void keyConfirm(const KeyEvent& k) {
 static void drawInfo() {
   ui::header(s_infoTitle.c_str());
   ui::wrap(ui::M.pad * 2, ui::M.bodyY + ui::M.pad, ui::charsFor(ui::M.w - ui::M.pad * 4), s_infoText.c_str(), ui::C_FG);
-  footer("esc back");
+  footer({"esc back"});
 }
 
 static void keyInfo(const KeyEvent& k) {
@@ -945,7 +1088,7 @@ static void drawBootSd() {
   ui::MenuItem items[2] = {{"Retry"}, {"Use device memory"}};
   int scroll = 0;
   ui::menu(ui::M.bodyY + ui::M.lineH + ui::M.pad * 3, items, 2, s_bootIdx, scroll);
-  footer("\x18\x19 move  enter choose");
+  footer({"\x18\x19 move  enter choose"});
 }
 
 static void keyBootSd(const KeyEvent& k) {
@@ -1021,6 +1164,8 @@ static void draw() {
     case CONFIRM: drawConfirm(); break;
     case BOOTSD: drawBootSd(); break;
     case INFO: drawInfo(); break;
+    case CATS: drawCats(); break;
+    case CATEDIT: drawCatEdit(); break;
   }
   ui::endFrame();
 }
@@ -1037,6 +1182,8 @@ void handle(const KeyEvent& k) {
     case CONFIRM: keyConfirm(k); break;
     case BOOTSD: keyBootSd(k); break;
     case INFO: keyInfo(k); break;
+    case CATS: keyCats(k); break;
+    case CATEDIT: keyCatEdit(k); break;
   }
 }
 

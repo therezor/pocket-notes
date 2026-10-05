@@ -16,7 +16,7 @@ namespace td {
 
 constexpr int MAX_OPTIONS = 16;
 constexpr int QDIM = 128;           // length of Choice::qvec (the h.P prototype projection)
-constexpr int STATE_MAX = 48;       // text tokens kept from the note; the rest is dropped
+constexpr int STATE_MAX = 40;       // text tokens kept from the note (~30 words); the rest is dropped
 
 // Learned per-option prototypes (see host/learn.mjs). vec is [n_options * QDIM], cnt[n_options].
 struct Protos {

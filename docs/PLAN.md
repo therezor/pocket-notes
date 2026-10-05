@@ -197,7 +197,27 @@ The routing seed run only reached 50%, so the model **preselects** a category an
   - One yes/no question per category scored 48% at 65 tokens and was dropped.
   - Shipped: the hints + rules. Every filed note is an example (8 newest per category), and the picker always asks the user to confirm.
 - **Partitions:** factory 0x770000 (7.44 MB) + LittleFS `storage` 0x80000. The image is 7.53 MB.
-- **Next:** on-device latency and heap numbers (the About screen and the `heap` remote command), then the smoke test (`tools/smoke.txt`).
+- **On the device** (Cardputer ADV):
+  - Boot leaves 207 KB of heap free with no SD card (largest block 159 KB), or 178 KB free with the SD card mounted.
+  - A first pass at 45 tokens took 3.4 s: matmul 1.7 s, newlib `erff` GELU 1.07 s, single-core attention 0.48 s.
+  - After the fixes it takes **1.8 s**:
+    - GELU from a 1/64-step table (error below 3e-5).
+    - Attention and GELU split across both cores.
+    - The worker runs at priority 3, above the UI.
+  - Host parity after the fixes: max|dp| 0.015 and 4 near-tie flips.
+  - A long note at T=77 needs about 166 KB in a fragmented heap. The scratch is now 5 blocks (x, Q, K, V, rest). If the allocation fails or would leave under 24 KB free, the engine retries with 8 fewer note tokens (seen: T=60, 2.5 s).
+  - SD is on SPI2, because M5GFX drives the Cardputer display on SPI3.
+  - Opening the USB serial port with RTS high resets the S3. `tools/remote.py` keeps RTS low.
+- **Smoke test** (`tools/smoke.txt`, run with `tools/remote.py`) passes on the device:
+  - It files a note through the AI picker (Shopping 97%).
+  - It adds a note to the Todo checklist, ticks it and deletes it.
+  - It runs a two-word search, opens the result and deletes it.
+- **Feedback during testing:**
+  - Footer hints rotate as short pages that fit the 29-character footer.
+  - Checklist counts show completed/total.
+  - The storage label reads "On device" / "On SD".
+  - Settings > Categories edits the name, prompt (hint), flags and order.
+- **Next:** a 2-token PIE kernel (one weight-row unpack for two tokens) to bring matmul under 1 s; and holding the canvas in 8-bit if the heap gets tight with many notes.
 
 ## History: Pocket Inbox (superseded)
 - **2026-10-05: project skeleton.**

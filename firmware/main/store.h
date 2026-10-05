@@ -68,6 +68,9 @@ int find(uint32_t id);             // index of the note with this id, or -1
 int addCategory(const std::string& name);       // -> index, or -1 if the name is taken/empty
 bool renameCategory(int cat, const std::string& name);
 bool deleteCategory(int cat, int moveTo);      // its notes move to moveTo first
+bool setCategoryHint(int cat, const std::string& hint);   // "" -> the model sees the name
+bool setCategoryFlags(int cat, bool check, bool phone, bool time);
+bool moveCategory(int cat, int dir);           // dir -1 up / +1 down; notes follow
 uint32_t catSignature();            // changes whenever the option set the model sees changes
 
 std::string slug(const std::string& name);

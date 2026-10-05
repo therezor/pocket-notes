@@ -366,10 +366,24 @@ const char* menu(int y0, const MenuItem* items, int n, int idx, int& scroll) {
     }
 
     int labelR = textR;
-    if (it.right) {
-      const int rw = (int)strlen(it.right) * M.charW;
-      textRight(textR, y + M.scale * 2, it.right, sel ? C_SEL_FG : (it.rightCol ? it.rightCol : C_DIM), bg);
-      labelR = textR - rw - M.charW;
+    if (it.right && it.right[0]) {
+      // The value gets what the label leaves (labels keep up to 8 characters), cut with "..".
+      const int room = charsFor(textR - x);
+      const int labelLen = (int)strlen(it.label);
+      int maxR = room - (labelLen < 8 ? labelLen : 8) - 1;
+      if (maxR < 3) maxR = 3;
+      char rb[64];
+      int rl = (int)strlen(it.right);
+      if (rl > maxR && maxR < (int)sizeof(rb)) {
+        memcpy(rb, it.right, maxR - 2);
+        rb[maxR - 2] = '.'; rb[maxR - 1] = '.'; rb[maxR] = 0;
+        rl = maxR;
+      } else {
+        snprintf(rb, sizeof(rb), "%s", it.right);
+        rl = (int)strlen(rb);
+      }
+      textRight(textR, y + M.scale * 2, rb, sel ? C_SEL_FG : (it.rightCol ? it.rightCol : C_DIM), bg);
+      labelR = textR - rl * M.charW - M.charW;
     }
     clip(buf, sizeof(buf), it.label, charsFor(labelR - x));
     text(x, y + M.scale * 2, buf, fg, bg);
