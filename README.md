@@ -11,15 +11,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/therezor/pocket-notes/releases/latest"><b>Download firmware</b></a> ·
-  <a href="#watch-it-work"><b>Watch it work</b></a> ·
-  <a href="#try-it-in-3-steps"><b>Try it</b></a> ·
-  <a href="#how-does-it-fit"><b>How it works</b></a>
+  <a href="https://github.com/therezor/pocket-notes/releases/latest"><b>⬇️ Download firmware</b></a> ·
+  <a href="#-watch-it-work"><b>▶️ Watch it work</b></a> ·
+  <a href="#-try-it-in-3-steps"><b>🚀 Try it</b></a> ·
+  <a href="#-how-does-it-fit"><b>🔧 How it works</b></a>
 </p>
 
 ---
 
-## Watch it work
+## 🎬 Watch it work
 
 <p align="center">
   <a href="https://github.com/therezor/pocket-notes/releases/download/1.0/pocket-notes-demo.mp4"><img src="docs/media/home.png" width="32%" alt="home"></a>
@@ -37,7 +37,7 @@ In the demo:
 4. A search for "milk" finds one note and highlights the match.
 5. Settings > Categories > Shopping shows the prompt the AI reads for that list, "something to buy".
 
-## Why it's different
+## 🤯 Why it's different
 
 A plain note app saves text, and the sorting is left to you. In Pocket Notes, a 10-million-parameter
 language model on the chip reads each note and picks the list: Shopping, Todo, Events, Contacts,
@@ -47,19 +47,19 @@ with WiFi off.
 It also learns from you. Every note you file becomes an example for its list, and the next guess
 uses it. The model isn't retrained, and nothing leaves the device.
 
-## By the numbers
+## 📊 By the numbers
 
 | | Pocket Notes |
 |---|---|
-| **Model** | TinyDecide, 10.4M parameters, 12 layers, 4-bit weights |
-| **Memory** | 512 KB of RAM, no PSRAM |
-| **Model file** | 6.2 MB, built into the firmware |
-| **Speed** | about 1.8 s per note, on both CPU cores |
-| **First guess right** | 62% out of the box, 75% after 5 notes in each list |
-| **Storage** | SD card, or 512 KB of the device's own flash |
-| **Internet** | Not needed. WiFi only sets the clock, if you want dates. |
+| 🧠 **Model** | TinyDecide, 10.4M parameters, 12 layers, 4-bit weights |
+| 💾 **Memory** | 512 KB of RAM, no PSRAM |
+| 📦 **Model file** | 6.2 MB, built into the firmware |
+| ⚡ **Speed** | about 1.8 s per note, on both CPU cores |
+| 🎯 **First guess right** | 62% out of the box, 75% after 5 notes in each list |
+| 🗂️ **Storage** | SD card, or 512 KB of the device's own flash |
+| 📡 **Internet** | Not needed. WiFi only sets the clock, if you want dates. |
 
-## Screens
+## 📸 Screens
 
 <p align="center">
   <img src="docs/media/home.png" width="32%" alt="your lists with completed/total counts">
@@ -67,9 +67,9 @@ uses it. The model isn't retrained, and nothing leaves the device.
   <img src="docs/media/categories.png" width="32%" alt="edit a list and the prompt the AI reads">
 </p>
 
-## What it's good and bad at
+## 🧸 What it's good and bad at
 
-| Good at | Bad at |
+| 👍 Good at | 👎 Bad at |
 |---|---|
 | Quick capture: type, Enter, Enter | Notes that fit two lists, like "call mom at 6pm" (Todo or Events) |
 | Shopping items, ideas, phone numbers, emails, times | Long notes, since it reads only the first ~30 words |
@@ -78,7 +78,7 @@ uses it. The model isn't retrained, and nothing leaves the device.
 
 It always shows its pick and waits for Enter, so a wrong guess costs one key press.
 
-## Try it in 3 steps
+## 🚀 Try it in 3 steps
 
 1. **Get a Cardputer.** An [M5Stack Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer-Adv) or the original Cardputer. The same firmware runs on both.
 2. **Flash it.** Download `pocket_notes_1.0_full.bin` from [Releases](https://github.com/therezor/pocket-notes/releases/latest) and write it at address `0x0` with the [ESP web flasher](https://espressif.github.io/esptool-js/) or `esptool.py write_flash 0x0 pocket_notes_1.0_full.bin`. To build it yourself, run `cd firmware && pio run -t upload`.
@@ -96,7 +96,7 @@ It always shows its pick and waits for Enter, so a wrong guess costs one key pre
 
 The footer shows the keys for the screen you're on.
 
-## Your notes are plain files
+## 🗂️ Your notes are plain files
 
 The app keeps one Markdown file per list, on the SD card or in device memory. The files open in
 Obsidian, and its Tasks plugin reads the checkboxes.
@@ -110,7 +110,7 @@ Obsidian, and its Tasks plugin reads the checkboxes.
 The Cardputer has no clock, so the app numbers notes and lists them newest first. If you add WiFi in
 Settings, the app syncs the clock once at boot and dates new notes.
 
-## How does it fit?
+## 🔧 How does it fit?
 
 1. **It picks from options.** TinyDecide is an encoder that answers a question with one probability per option, in a single pass. Pocket Notes asks it "What kind of note is this?" and gives your lists as the options.
 2. **The prompts set the options.** Each list has a prompt, the short text the model reads for it, such as "something to buy" or "a phone number or email". You can edit the prompts in Settings.
@@ -126,7 +126,7 @@ node host/make_ref.mjs && sh host/engine_test.sh    # the C++ engine against the
 ```
 
 <details>
-<summary><b>Changelog</b></summary>
+<summary><b>📜 Changelog</b></summary>
 
 - **v1.0**, the first release
   - Lists (categories), with an on-device AI suggestion for every new note. It learns from the notes you file.
@@ -138,7 +138,7 @@ node host/make_ref.mjs && sh host/engine_test.sh    # the C++ engine against the
 
 </details>
 
-## License
+## 📄 License
 
 The code is MIT (see [LICENSE](LICENSE)). The embedded model is TinyDecide (S768 build) by REZOR,
 initialised from Google's ELECTRA-small (Apache 2.0); see [model/SOURCE.md](model/SOURCE.md).
