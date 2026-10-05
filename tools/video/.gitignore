@@ -1,0 +1,5 @@
+node_modules/
+out/
+public/clips/
+public/music.*
+prep/electro-trailer.*
