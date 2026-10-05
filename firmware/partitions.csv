@@ -1,0 +1,16 @@
+# Partition table for pocket_inbox (copied from cardputer_ai) on Cardputer ADV (ESP32-S3FN8, 8 MB flash).
+#
+# The model and tokenizer are embedded into the firmware via .incbin, so the
+# app partition has to be big enough to hold the code + up to ~5.7 MB of
+# model data (the 8M model). Single factory app, no OTA, no SPIFFS — nothing
+# in the firmware uses storage, so the app slot takes all remaining flash.
+#
+# bmorcelli/Launcher writes the new firmware to offset 0x10000 and replaces
+# the running partition table on install (PMan honors the new scheme), so
+# this layout activates as soon as the user installs the .bin. Anything that
+# lived in the old `storage` partition is orphaned (nothing ever wrote it).
+#
+# Name,     Type, SubType,  Offset,    Size,      Flags
+nvs,        data, nvs,      0x9000,    0x6000,
+phy_init,   data, phy,      0xf000,    0x1000,
+factory,    app,  factory,  0x10000,   0x7F0000,

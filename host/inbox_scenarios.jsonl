@@ -1,0 +1,32 @@
+{"text": "call mom tomorrow 6pm", "labels": {"route": "todo", "time": "6pm", "day": "tomorrow", "person": "mom"}}
+{"text": "lunch 12.40 with Mark", "labels": {"route": "expense", "amount": "12.40", "person": "Mark", "spent_on": "food", "day": null}}
+{"text": "Anna new number 555 0134", "labels": {"route": "contact", "person": "Anna", "phone": "555 0134", "email": null}}
+{"text": "server down again!! fix before demo friday", "labels": {"route": "todo", "urgency": "high", "day": "friday", "time": null}}
+{"text": "dentist oct 14 at 9:30", "labels": {"route": "event", "day": "oct 14", "time": "9:30"}}
+{"text": "idea: solar plant moisture sensor", "labels": {"route": "idea", "time": null, "day": null, "person": null}}
+{"text": "buy milk, eggs, coffee", "labels": {"route": "shopping", "time": null, "person": null}}
+{"text": "taxi to the airport 34 euros", "labels": {"route": "expense", "amount": "34 euros", "spent_on": "transport"}}
+{"text": "meeting with Sarah on monday at 10am about the budget", "labels": {"route": "event", "person": "Sarah", "day": "monday", "time": "10am"}}
+{"text": "Jake Miller email jake.miller@gmail.com", "labels": {"route": "contact", "person": "Jake Miller", "email": "jake.miller@gmail.com", "phone": null}}
+{"text": "note: the wifi password at the cabin is on the fridge", "labels": {"route": "note", "time": null, "person": null}}
+{"text": "what if the keyboard backlight followed the music", "labels": {"route": "idea"}}
+{"text": "pay the electricity bill by the 20th", "labels": {"route": "todo", "day": "the 20th"}}
+{"text": "paid 80 for electricity", "labels": {"route": "expense", "amount": "80", "spent_on": "bills"}}
+{"text": "need batteries and printer paper", "labels": {"route": "shopping"}}
+{"text": "URGENT renew passport, the appointment form closes tonight", "labels": {"route": "todo", "urgency": "high"}}
+{"text": "dinner with Leo and Kate saturday 7:30pm at Mario's", "labels": {"route": "event", "day": "saturday", "time": "7:30pm", "place": "Mario's"}}
+{"text": "movie tickets 23 dollars", "labels": {"route": "expense", "amount": "23 dollars", "spent_on": "fun"}}
+{"text": "remember to water the plants", "labels": {"route": "todo", "urgency": "low", "time": null, "day": null}}
+{"text": "Dr Patel office 020 7946 0958", "labels": {"route": "contact", "phone": "020 7946 0958"}}
+{"text": "haircut thursday 4pm", "labels": {"route": "event", "day": "thursday", "time": "4pm"}}
+{"text": "book recommendation from Tom: Project Hail Mary", "labels": {"route": "note", "person": "Tom"}}
+{"text": "grab toothpaste on the way home", "labels": {"route": "shopping"}}
+{"text": "email the landlord about the leak today", "labels": {"route": "todo", "day": "today"}}
+{"text": "call Sam back asap, he sounded worried", "labels": {"route": "todo", "urgency": "high", "person": "Sam"}}
+{"text": "app that turns receipts into a spending map", "labels": {"route": "idea"}}
+{"text": "team standup moved to 9:15 tomorrow", "labels": {"route": "event", "time": "9:15", "day": "tomorrow"}}
+{"text": "spent 9.80 on groceries", "labels": {"route": "expense", "amount": "9.80", "spent_on": "food"}}
+{"text": "the train is always late on mondays", "labels": {"route": "note"}}
+{"text": "new plumber Marta 0161 496 0012", "labels": {"route": "contact", "person": "Marta", "phone": "0161 496 0012"}}
+{"text": "asdf jkl", "nofit": true}
+{"text": "ok", "nofit": true}

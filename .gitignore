@@ -1,0 +1,13 @@
+build/
+.vscode/
+.pio/
+managed_components/
+node_modules/
+sdkconfig
+sdkconfig.*
+!sdkconfig.defaults
+.DS_Store
+.claude/
+*.swp
+*.swo
+.cache
