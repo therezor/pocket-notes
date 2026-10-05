@@ -5,6 +5,7 @@
 //   shot <name>     reply "<<SHOT name w h\n" + the canvas as raw RGB565 (MSB first)
 //   dump            reply the note index, one "##" line per note
 //   heap            reply free / largest-block heap
+//   demo 1|0        switch to / wipe a throwaway notes folder for screenshots
 // Replies are lines starting with "##" (or the binary shot), mixed with the normal log output.
 #pragma once
 #include "keys.h"

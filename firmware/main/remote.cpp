@@ -120,6 +120,9 @@ static void command(const std::string& l) {
     reply("## settings backend=%d ai=%d hide=%d compact=%d learn_from=%u", settings::v.backend, settings::v.ai,
           settings::v.hideDone, settings::v.compact, (unsigned)settings::v.learnFrom);
     reply("## end");
+  } else if (cmd == "demo") {
+    bool ok = store::demo(arg == "1");
+    reply("## demo %s %s", arg == "1" ? "on" : "off", ok ? "ok" : "failed");
   } else if (cmd == "heap") {
     reply("## heap free %u largest %u min %u  last pass %u ms %d tokens  %s", (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),

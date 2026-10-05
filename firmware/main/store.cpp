@@ -33,7 +33,10 @@ static uint32_t s_err = 0;
 static const char* FLASH_BASE = "/flash";
 static const char* SD_BASE = "/sd";
 
-static std::string dirOf(Backend b) { return std::string(b == BK_SD ? SD_BASE : FLASH_BASE) + "/notes"; }
+static bool s_demo = false;
+static std::string dirOf(Backend b) {
+  return std::string(b == BK_SD ? SD_BASE : FLASH_BASE) + (s_demo ? "/notes-demo" : "/notes");
+}
 std::string root() { return dirOf(s_active); }
 uint32_t lastError() { return s_err; }
 const char* backendName(Backend b) { return b == BK_SD ? "SD card" : b == BK_FLASH ? "Device memory" : "none"; }
@@ -505,6 +508,25 @@ bool moveCategory(int ci, int dir) {
     else if (n.cat == to) n.cat = (uint8_t)ci;
   }
   return saveCategories();
+}
+
+bool demo(bool on) {
+  if (!s_flash) return false;
+  if (!on && s_demo) {   // leaving: wipe the demo folder
+    std::string dir = dirOf(BK_FLASH);
+    if (DIR* d = opendir(dir.c_str())) {
+      while (dirent* e = readdir(d)) {
+        std::string n = e->d_name;
+        if (n != "." && n != "..") remove((dir + "/" + n).c_str());
+      }
+      closedir(d);
+    }
+    rmdir(dir.c_str());
+  }
+  const Backend back = (Backend)settings::v.backend;
+  s_demo = on;
+  if (on) return use(BK_FLASH);
+  return use(mounted(back) ? back : BK_FLASH);
 }
 
 uint32_t catSignature() {

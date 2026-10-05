@@ -1,127 +1,75 @@
 # Pocket Notes
 
-A pocket note-taking app for the M5Stack Cardputer (original and ADV). Notes are sorted into
-categories, Todo and Shopping are checklists, and an on-device model
-([TinyDecide](../tinydecide)) suggests the category for every new note and learns from what you
-file. Fully offline. Notes are plain Markdown on the SD card or in the Cardputer's own flash.
+**A note-taking app for the M5Stack Cardputer that files each note into a list for you.** Type a
+thought and press Enter. A small AI model running on the Cardputer picks the list. It works offline
+and needs no phone or account.
 
-| You type | It suggests |
+<p align="center"><img src="docs/media/demo.gif" width="480" alt="Pocket Notes running on a Cardputer"></p>
+<p align="center"><a href="docs/media/demo.mp4">Watch the 50-second demo (MP4)</a>, recorded from the device's own screen at real speed.</p>
+
+## Why
+
+- **Fast capture.** You type the note, press Enter, and the suggested list is already selected. Press Enter again to save it.
+- **No sorting by hand.** Todo, Shopping, Ideas, Events, Contacts and Notes are built in, and you can add your own lists.
+- **Gets better as you use it.** Every note you file is an example of its list. It gets about 62% of first guesses right, and about 75% after 5 notes in each list.
+- **Private.** The model (6 MB, about 2 s per note) runs on the ESP32-S3. Nothing leaves the device.
+- **Your files.** Notes are plain Markdown on the SD card or in the Cardputer's own memory, so no card is needed. They open in Obsidian.
+
+| | | |
+|:-:|:-:|:-:|
+| <img src="docs/media/home.png" width="240"><br>Your lists | <img src="docs/media/suggest.png" width="240"><br>The AI picks the list | <img src="docs/media/checklist.png" width="240"><br>Checklists |
+| <img src="docs/media/search.png" width="240"><br>Search as you type | <img src="docs/media/categories.png" width="240"><br>Edit lists and their AI prompts | |
+
+## Install
+
+Flash with PlatformIO. The same image runs on the Cardputer and the Cardputer ADV.
+
+```sh
+cd firmware && pio run -t upload
+```
+
+Flashing over USB replaces whatever is on the device. If the uploader can't connect, hold **G0**
+while pressing **reset** and try again.
+
+## Use
+
+| Key | Action |
 |---|---|
-| `buy milk, eggs, coffee` | **Shopping** |
-| `call mom tomorrow 6pm` | **Todo** (or Events) |
-| `Anna new number 555 0134` | **Contacts** |
-| `idea: solar plant moisture sensor` | **Ideas** |
-| `parked on level 3, row F` | **Notes** |
+| `n` | new note (the AI suggests a list) |
+| `;` `.` | up / down |
+| `enter` | open, save, file |
+| `space` | tick a checklist item |
+| `f` | search |
+| `e` `m` `p` `d` | edit, move, pin, delete |
+| `` ` `` / `del` | back |
 
-## Using it
+The footer always shows the keys for the current screen. Settings has the lists and their AI
+prompts, SD or device storage, and WiFi for setting the clock. The Cardputer has no clock of its
+own, so notes are numbered rather than dated unless WiFi is set.
 
-**Home** lists `+ New note`, `Search`, your categories and `Settings`. Checklists show
-completed/total (`3/3` when all three are done, `0/3` when none are). The top-right corner shows
-where notes are saved: **On device** or **On SD**.
-
-- `+ New note` (or `n`): type, press Enter, and the **File as** list opens with the model's pick
-  highlighted and a percentage beside each category. Enter files the note. Arrows pick another
-  category, and `+ New category` makes one on the spot.
-- Inside a category, `+ New note` files straight into it with no question asked.
-- **Checklists** (Todo, Shopping and any category flagged `check`): `space` marks an item complete
-  or incomplete. Completed items sink below open ones; `h` hides or shows them.
-- On a note: `enter` opens it, `e` edits, `m` moves to another category, `p` pins it to the top,
-  `d` deletes (it asks first).
-- **Search** (`f`): type words and the results update as you type. Every word must match, and
-  matches are highlighted. `f` inside a category searches only that category.
-- On Home, on a category row: `r` renames it, `d` deletes it (its notes move to another category).
-- **Settings > Categories** edits everything `categories.txt` holds:
-  - the name and the **prompt** (the words the model reads for that category, e.g. "something to buy");
-  - checklist on/off, the phone/email and clock-time rules;
-  - the order (move up/down), and delete.
-  `+ New category` adds one.
-
-The footer shows the keys for the current screen, a few at a time, and takes turns when there are
-more.
-
-Keys follow the Cardputer legends: `;` `.` up/down, `,` `/` page, `enter`, `del` back,
-`` ` `` esc. In the editor every key types; `fn+,` / `fn+/` move the cursor.
-
-### It learns from you
-
-The model gets about 62% of first guesses right on the bundled test set. Every note you file
-becomes an example of its category. The newest 8 per category are embedded in the background (the
-footer shows `learning 3/40`), and after about 5 notes per category it gets about 75% right.
-Phone numbers, emails and clock times count as extra evidence for Contacts and Events. Renaming or
-adding a category keeps everything learned. `Settings > Forget learning` starts suggestions over
-without touching your notes.
-
-### No clock needed
-
-The Cardputer has no battery-backed clock, so nothing depends on the date. Each note has a
-sequence number (`#42`) and lists sort newest first. If you enter WiFi in Settings (or in
-`settings.ini`), the clock is synced over NTP at boot and new notes are stamped with the date
-(`➕ 2026-10-05`). WiFi is switched off again right after the sync. A board with an RTC uses it.
-
-### SD card or device memory
-
-`Settings > Storage` chooses where notes live: the SD card (`/notes/`) or device memory (the
-Cardputer's own 512 KB flash), so the app works with no card at all. `Copy notes to …` copies everything between the two.
-If the SD card is missing at boot, you are asked whether to retry or use device memory.
-
-## Files
+The app keeps one Markdown file per list, plus a file with the lists themselves:
 
 ```
-/notes/categories.txt   Name | what the model sees | flags (check, phone, time)
-/notes/todo.md          - [ ] call the plumber ➕ 2026-10-05 ^n12
-/notes/ideas.md         - solar plant moisture sensor #pinned ^n9
-/notes/settings.ini     optional: wifi_ssid, wifi_pass, utc_offset_min
+/notes/todo.md        - [ ] call the plumber ^n12
+/notes/ideas.md       - solar moisture sensor #pinned ^n9
+/notes/categories.txt Todo | a task to do | check
 ```
 
-The `.md` files open in Obsidian; the Tasks plugin reads the checkboxes and dates. Lines added on a
-PC without a `^n` id get one on the next boot. Starter files are in [sd/notes/](sd/notes/).
+## How it works
 
-## Building
+TinyDecide is a 12-layer encoder that answers plain-language questions about a piece of text.
+Pocket Notes asks it one question per note: *"What kind of note is this?"*. The options are your
+lists' prompts. A C++ port runs the 4-bit weights on both cores of the ESP32-S3 using its SIMD
+instructions. Each filed note updates an average vector for its list. The model adds a new note's
+similarity to that vector to the list's score, so it learns without retraining. The details and
+measurements are in [docs/PLAN.md](docs/PLAN.md).
 
 ```sh
-cd firmware && pio run -t upload        # ESP-IDF 5.5 via PlatformIO (pioarduino 55.03.312-1)
-```
-
-One image runs on both the original Cardputer and the ADV. It is 7.5 MB: 6.2 MB of model plus
-code, in a 7.44 MB factory slot, with a 512 KB LittleFS `storage` partition after it. Flashing over
-USB replaces whatever was on the device, M5Launcher included. Installing through M5Launcher has
-not been tested with this layout (the extra `storage` partition is new).
-
-A model pass takes about 1.8 s for a typical note (45 tokens) and up to about 2.9 s for a long
-one. It runs on both cores while the UI keeps going. When the heap is short, the engine drops the end
-of a long note rather than fail.
-
-If the board does not answer the uploader (`No serial data received`), hold **G0** while pressing
-**reset** (or while plugging in USB) to enter download mode, flash, and then press reset.
-
-## Host tools (Node 18+, a C++17 compiler)
-
-```sh
-node model/verify.mjs          # JS engine vs the torch reference (0 mismatches)
-node host/pack_model.mjs       # model/vocab.bin + firmware/components/tinydecide/td_meta.h
-node host/make_ref.mjs && sh host/engine_test.sh   # firmware engine (C++) vs JS engine, on the PC
-node host/notes_eval.mjs       # category accuracy: zero-shot and after 2/5/8 notes per category
+node host/notes_eval.mjs                           # list accuracy, zero-shot and after learning
+node host/make_ref.mjs && sh host/engine_test.sh   # C++ engine vs the JS reference, on a PC
 ~/.platformio/penv/bin/python tools/remote.py --script tools/smoke.txt   # scripted test on the device
 ```
 
-`tools/remote.py` injects keys over USB, saves screenshots, and dumps the notes. See
-[firmware/main/remote.h](firmware/main/remote.h) for the commands.
-
-## Layout
-
-```
-firmware/main/                 app: screens (app.cpp), storage, settings, clock, AI glue, UI kit
-firmware/components/tinydecide engine: tokenizer, Q4 encoder (PIE kernel, both cores), choice head
-model/                         TinyDecide S768 weights + JS reference engine (see model/SOURCE.md)
-host/                          packer, parity test, accuracy eval, learning reference (learn.mjs)
-sd/notes/                      starter SD contents
-tools/                         remote control + smoke test
-docs/PLAN.md                   plan and status log
-```
-
-The UI copies the look of [ESP32 Cleaner](../esp32_cleaner): the same palette, 8x16 font, header,
-footer and menu code.
-
 ## License
 
-MIT
+[MIT](LICENSE)

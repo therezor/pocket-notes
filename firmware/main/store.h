@@ -71,7 +71,10 @@ bool deleteCategory(int cat, int moveTo);      // its notes move to moveTo first
 bool setCategoryHint(int cat, const std::string& hint);   // "" -> the model sees the name
 bool setCategoryFlags(int cat, bool check, bool phone, bool time);
 bool moveCategory(int cat, int dir);           // dir -1 up / +1 down; notes follow
-uint32_t catSignature();            // changes whenever the option set the model sees changes
+uint32_t catSignature();
+// Screenshot mode (tools/remote.py "demo 1"): a separate, throwaway notes folder in device memory,
+// so README images never show the owner's notes. "demo 0" wipes it and returns to the real folder.
+bool demo(bool on);            // changes whenever the option set the model sees changes
 
 std::string slug(const std::string& name);
 std::string root();                 // notes folder of the active backend

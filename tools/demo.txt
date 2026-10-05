@@ -1,0 +1,127 @@
+# Demo for the README video (tools/record.py). Runs in the throwaway demo folder.
+seed demo 1
+seed wait 800
+seed key esc esc
+seed key down down
+seed key enter
+seed key enter
+seed type fix the squeaky door hinge
+seed key enter
+seed key enter
+seed type send Anna the trip photos
+seed key enter
+seed key enter
+seed type book the car service
+seed key enter
+seed key enter
+seed type call the plumber about the leak
+seed key enter
+seed key esc
+seed key up up
+seed key down down down
+seed key enter
+seed key enter
+seed type bananas, bread, eggs
+seed key enter
+seed key enter
+seed type AA batteries x4
+seed key enter
+seed key enter
+seed type birthday gift for dad
+seed key enter
+seed key esc
+seed key up up up
+seed key down down down down
+seed key enter
+seed key enter
+seed type solar moisture sensor for the plants
+seed key enter
+seed key enter
+seed type maze game with a tilt sensor
+seed key enter
+seed key esc
+seed key up up up up
+seed key down down down down down
+seed key enter
+seed key enter
+seed type team dinner fri 7:30pm at Mario's
+seed key enter
+seed key enter
+seed type flight to Lisbon june 3
+seed key enter
+seed key esc
+seed key up up up up up
+seed key down down down down down down
+seed key enter
+seed key enter
+seed type Marta plumber 0161 496 0012
+seed key enter
+seed key enter
+seed type Jake jake.m@mail.com
+seed key enter
+seed key esc
+seed key up up up up up up
+seed key down down down down down down down
+seed key enter
+seed key enter
+seed type parked on level 3, row F
+seed key enter
+seed key enter
+seed type wifi password at the cabin is on the fridge
+seed key enter
+seed key esc
+seed key up up up up up up up
+seed key down down down
+seed key enter
+seed key down down
+seed key space
+seed key esc
+seed key up up up
+seed wait 30000
+# let background learning finish (13 notes)
+# 1. A new note from Home: the model files it.
+hold 1500
+key n
+type buy oat milk and coffee beans
+hold 400
+key enter
+hold 3500
+key enter
+hold 1800
+# 2. Another one: a time points to Events.
+key n
+type dentist thursday 4pm
+key enter
+hold 3500
+key enter
+hold 1500
+# 3. Todo is a checklist.
+key down down
+key enter
+hold 800
+key down
+key space
+hold 700
+key down
+key space
+hold 1500
+key esc
+# 4. Search as you type.
+key f
+type milk
+hold 1500
+key enter
+hold 1800
+key esc esc
+# 5. Categories and their AI prompts are editable.
+key up up
+key up
+key enter
+key enter
+key down
+key enter
+key down
+hold 2500
+key esc esc esc
+key down
+hold 1500
