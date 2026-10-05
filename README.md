@@ -21,6 +21,10 @@
 
 ## 🎬 Watch it work
 
+https://github.com/user-attachments/assets/3587baf4-9af5-4df0-9305-d1aa7361507f
+
+<p align="center">The 47-second promo, with sound. The device footage in it plays at real speed.</p>
+
 <p align="center">
   <a href="https://github.com/therezor/pocket-notes/releases/download/1.0/pocket-notes-demo.mp4"><img src="docs/media/home.png" width="32%" alt="home"></a>
   <a href="https://github.com/therezor/pocket-notes/releases/download/1.0/pocket-notes-demo.mp4"><img src="docs/media/suggest.png" width="32%" alt="the AI picks the list"></a>
