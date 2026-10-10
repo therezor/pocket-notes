@@ -13,4 +13,4 @@ Parity check: `node model/verify.mjs` — must print 0 token-id / pick / span mi
 | `heldout_int8.json` | 16282 | `65d3c51cfce12ed72d0114652fd5214aa1b89f16a2146d446eed16f0ed86b9c6` |
 | `verify.mjs` | 1830 | `fe64b7ea334e896f64fbf9408751ffc92c4cfdc1c74481becf2d58e419b4e685` |
 
-`vocab.bin` is generated from `meta.json` by `node host/pack_model.mjs` (with `firmware/components/tinydecide/td_meta.h`) and embedded in the firmware next to `model.bin`.
+The firmware engine, `firmware/components/tinydecide/`, is the `esp32/tinydecide/` component of [TheREZOR/TinyDecide](https://huggingface.co/TheREZOR/TinyDecide) at commit `aa745b7` (2026-10-10), copied unchanged. Its `model/vocab.bin` and `src/td_meta.h` were generated from this `meta.json` by that repo's `esp32/tools/pack.mjs`. The component's CMake refuses any `model.bin` whose sha256 differs from `td_meta.h`. `firmware/sdkconfig.defaults` points it at this folder (`CONFIG_TINYDECIDE_MODEL_DIR`).

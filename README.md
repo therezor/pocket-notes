@@ -23,7 +23,7 @@
 
 https://github.com/user-attachments/assets/3587baf4-9af5-4df0-9305-d1aa7361507f
 
-<p align="center">The 47-second promo, with sound. The device footage in it plays at real speed.</p>
+<p align="center">The 47-second promo, with sound. The device footage in it plays at real speed (recorded on 1.0, before the faster engine).</p>
 
 <p align="center">
   <a href="https://github.com/therezor/pocket-notes/releases/download/1.0/pocket-notes-demo.mp4"><img src="docs/media/home.png" width="32%" alt="home"></a>
@@ -58,7 +58,7 @@ uses it. The model isn't retrained, and nothing leaves the device.
 | 🧠 **Model** | TinyDecide, 10.4M parameters, 12 layers, 4-bit weights |
 | 💾 **Memory** | 512 KB of RAM, no PSRAM |
 | 📦 **Model file** | 6.2 MB, built into the firmware |
-| ⚡ **Speed** | about 1.8 s per note, on both CPU cores |
+| ⚡ **Speed** | about 0.7 s per note, on both CPU cores |
 | 🎯 **First guess right** | 62% out of the box, 75% after 5 notes in each list |
 | 🗂️ **Storage** | SD card, or 512 KB of the device's own flash |
 | 📡 **Internet** | Not needed. WiFi only sets the clock, if you want dates. |
@@ -85,7 +85,7 @@ It always shows its pick and waits for Enter, so a wrong guess costs one key pre
 ## 🚀 Try it in 3 steps
 
 1. **Get a Cardputer.** An [M5Stack Cardputer ADV](https://docs.m5stack.com/en/core/Cardputer-Adv) or the original Cardputer. The same firmware runs on both.
-2. **Flash it.** Download `pocket_notes_1.0_full.bin` from [Releases](https://github.com/therezor/pocket-notes/releases/latest) and write it at address `0x0` with the [ESP web flasher](https://espressif.github.io/esptool-js/) or `esptool.py write_flash 0x0 pocket_notes_1.0_full.bin`. To build it yourself, run `cd firmware && pio run -t upload`.
+2. **Flash it.** Download `pocket_notes_1.1_full.bin` from [Releases](https://github.com/therezor/pocket-notes/releases/latest) and write it at address `0x0` with the [ESP web flasher](https://espressif.github.io/esptool-js/) or `esptool.py write_flash 0x0 pocket_notes_1.1_full.bin`. To build it yourself, run `cd firmware && pio run -t upload`.
 3. **Press `n`, type, press Enter.** You don't need an account or an SD card.
 
 | Key | What it does |
@@ -118,7 +118,7 @@ Settings, the app syncs the clock once at boot and dates new notes.
 
 1. **It picks from options.** TinyDecide is an encoder that answers a question with one probability per option, in a single pass. Pocket Notes asks it "What kind of note is this?" and gives your lists as the options.
 2. **The prompts set the options.** Each list has a prompt, the short text the model reads for it, such as "something to buy" or "a phone number or email". You can edit the prompts in Settings.
-3. **The weights are 4-bit.** The firmware reads them straight from flash. A C++ port runs them on both cores with the ESP32-S3's vector (SIMD) instructions, using about 2 KB of RAM per word piece.
+3. **The weights are 4-bit.** The firmware reads them straight from flash. The [TinyDecide ESP32 engine](https://huggingface.co/TheREZOR/TinyDecide/tree/main/esp32) runs them on both cores with the ESP32-S3's vector (SIMD) instructions, using about 2 KB of RAM per word piece.
 4. **It learns without training.** Each list keeps the average vector of its filed notes. The app adds a new note's similarity to that average to the list's score. Two text rules add a little more: a phone number counts toward Contacts and a clock time toward Events.
 
 [docs/PLAN.md](docs/PLAN.md) has the measurements, design notes and status log. To test it:
@@ -132,6 +132,8 @@ node host/make_ref.mjs && sh host/engine_test.sh    # the C++ engine against the
 <details>
 <summary><b>📜 Changelog</b></summary>
 
+- **v1.1**
+  - Suggestions are about 2.5 times faster: about 0.7 s per note, down from 1.8 s. The firmware now uses the upstream TinyDecide ESP32 engine, with a 4-token vector kernel. The model is the same, and its answers match the old engine to within about 2%, apart from a few near ties.
 - **v1.0**, the first release
   - Lists (categories), with an on-device AI suggestion for every new note. It learns from the notes you file.
   - Checklists with completed/total counts, hide completed, pin, move, edit, delete.

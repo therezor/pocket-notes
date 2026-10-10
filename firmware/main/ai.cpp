@@ -27,7 +27,9 @@ namespace ai {
 // host/notes_eval.mjs (best of the wordings tried there).
 static const char* QUESTION = "What kind of note is this?";
 static constexpr int PER_CAT = 8;            // examples per category (the prototype buckets top out at >8)
-static constexpr int K = td::MAX_OPTIONS;
+static constexpr int K = 16;                 // most categories; also the z[] size in .learn.bin, keep it
+static constexpr int STATE_TOKENS = 40;      // note tokens the model reads (~30 words); the rest is dropped
+static_assert(K <= td::MAX_OPTIONS, "more categories than the engine takes");
 
 struct Job {
   enum Kind : uint8_t { SUGGEST, EMBED } kind;
@@ -42,7 +44,8 @@ struct Job {
   float plam;
   // result
   bool ok;
-  td::Choice out;
+  td::Answer out;
+  td::Info info;
 };
 
 struct Example {
@@ -79,8 +82,12 @@ static void worker(void*) {
     for (auto& o : j->opts) op.push_back(o.c_str());
     td::Protos p;
     if (j->hasProtos) { p.vec = j->pvec.data(); p.cnt = j->pcnt.data(); p.center = j->pcenter.data(); p.lam = j->plam; }
-    j->ok = td::choice(j->text.c_str(), QUESTION, op.data(), (int)op.size(), j->bias, j->hasProtos ? &p : nullptr, &j->out);
-    if (!j->ok) ESP_LOGW(TAG, "pass failed (largest free block %u)", (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    td::Question q{td::CHOICE, QUESTION, op.data(), (int)op.size(), j->hasProtos ? &p : nullptr, j->bias};
+    const td::Status st = td::answer(j->text.c_str(), &q, 1, &j->out, &j->info, STATE_TOKENS);
+    j->ok = st == td::OK;
+    if (!j->ok)
+      ESP_LOGW(TAG, "pass failed: %s (largest free block %u)", td::statusText(st),
+               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     xQueueSend(s_out, &j, portMAX_DELAY);
   }
 }
@@ -91,7 +98,7 @@ void begin() {
   s_in = xQueueCreate(4, sizeof(Job*));
   s_out = xQueueCreate(4, sizeof(Job*));
   xTaskCreatePinnedToCore(worker, "td", 8192, nullptr, 3, nullptr, 1);   // above the UI (1)
-  ESP_LOGI(TAG, "engine ready, model %s", TD_MODEL_VARIANT);
+  ESP_LOGI(TAG, "engine ready, model %s", MODEL_VARIANT);
 }
 
 bool ok() { return s_ok; }
@@ -315,7 +322,7 @@ void tick() {
 
   Job* j = nullptr;
   while (xQueueReceive(s_out, &j, 0) == pdTRUE && j) {
-    if (j->ok) { s_lastMs = j->out.ms; s_lastTokens = j->out.tokens; }
+    if (j->ok) { s_lastMs = j->info.ms; s_lastTokens = j->info.tokens; }
     if (j->kind == Job::SUGGEST) {
       if (j->seq == s_seq) {
         s_suggestBusy = false;
@@ -323,7 +330,7 @@ void tick() {
           s_pick = j->out.pick; s_conf = j->out.confidence;
           memcpy(s_probs, j->out.probs, sizeof(s_probs));
           s_have = true;
-          ESP_LOGI(TAG, "suggest %d (%.2f) in %u ms, %d tokens", s_pick, s_conf, (unsigned)j->out.ms, j->out.tokens);
+          ESP_LOGI(TAG, "suggest %d (%.2f) in %u ms, %d tokens", s_pick, s_conf, (unsigned)j->info.ms, j->info.tokens);
         }
       }
     } else {

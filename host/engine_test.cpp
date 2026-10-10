@@ -1,7 +1,7 @@
 // Host parity test: the firmware's C++ engine (scalar kernel) against the JS engine.
 //   node host/make_ref.mjs && sh host/engine_test.sh
 // Checks tokenizer ids exactly, then the pick and max|dp| per case. Cases whose note is longer than
-// td::STATE_MAX tokens are skipped for probabilities (the device drops the tail, JS keeps it).
+// STATE_TOKENS are skipped for probabilities (the device drops the tail, JS keeps it).
 #include "tinydecide.h"
 
 #include <math.h>
@@ -11,6 +11,8 @@
 
 #include <string>
 #include <vector>
+
+static constexpr int STATE_TOKENS = 40;   // as firmware/main/ai.cpp
 
 static std::vector<uint8_t> slurp(const char* path) {
   FILE* f = fopen(path, "rb");
@@ -39,7 +41,7 @@ int main(int argc, char** argv) {
   const char* root = argc > 1 ? argv[1] : ".";
   std::string r(root);
   std::vector<uint8_t> model = slurp((r + "/model/model.bin").c_str());
-  std::vector<uint8_t> vocab = slurp((r + "/model/vocab.bin").c_str());
+  std::vector<uint8_t> vocab = slurp((r + "/firmware/components/tinydecide/model/vocab.bin").c_str());
   // The engine needs a 16-byte aligned model, as the device's .incbin provides.
   uint8_t* m = (uint8_t*)aligned_alloc(16, (model.size() + 15) & ~(size_t)15);
   memcpy(m, model.data(), model.size());
@@ -66,14 +68,17 @@ int main(int argc, char** argv) {
     std::vector<std::string> opts = split(c[2], '|');
     std::vector<const char*> op;
     for (auto& o : opts) op.push_back(o.c_str());
-    td::Choice ch;
-    if (!td::choice(c[0].c_str(), c[1].c_str(), op.data(), (int)op.size(), nullptr, nullptr, &ch)) {
-      printf("choice failed: %s\n", c[0].c_str());
+    td::Question q{td::CHOICE, c[1].c_str(), op.data(), (int)op.size()};
+    static td::Answer ch;
+    td::Info info;
+    const td::Status st = td::answer(c[0].c_str(), &q, 1, &ch, &info, STATE_TOKENS);
+    if (st != td::OK) {
+      printf("answer failed (%s): %s\n", td::statusText(st), c[0].c_str());
       idBad++;
       continue;
     }
-    ms += ch.ms;
-    if (ch.truncated) { skipped++; continue; }
+    ms += info.ms;
+    if (info.truncated) { skipped++; continue; }
     std::vector<std::string> ps = split(c[4], ',');
     int jsPick = 0;
     for (size_t i = 0; i < ps.size(); i++) {

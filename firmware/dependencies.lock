@@ -35,6 +35,6 @@ direct_dependencies:
 - idf
 - joltwallet/littlefs
 - m5stack/m5unified
-manifest_hash: 9df5e792402ba52f89e5c43eec01f16a72cc09d3b7c7883a30b3e04fb96df9ff
+manifest_hash: 88f1ec3d9577d3920152b710420f15d0c681dac63843aee9c2632d987992858d
 target: esp32s3
 version: 2.0.0

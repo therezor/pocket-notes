@@ -1,0 +1,8 @@
+version: "0.1.0"
+description: "TinyDecide: an on-device decision model. Answers choice, yes/no, score and extract questions about one text."
+url: "https://huggingface.co/TheREZOR/TinyDecide"
+license: "Apache-2.0"
+targets:
+  - esp32s3
+dependencies:
+  idf: ">=5.5"

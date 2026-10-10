@@ -14,6 +14,8 @@
 
 namespace ai {
 
+constexpr const char* MODEL_VARIANT = "S768";   // model/model.bin, see model/SOURCE.md
+
 void begin();                     // init the engine and the worker task
 bool ok();                        // engine initialised
 void tick();                      // call from the UI loop: collects results, schedules learning

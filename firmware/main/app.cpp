@@ -25,11 +25,10 @@
 #include "remote.h"
 #include "settings.h"
 #include "store.h"
-#include "tinydecide.h"
 #include "ui.h"
 
 #define APP_NAME "Pocket Notes"
-#define APP_VERSION "1.0"
+#define APP_VERSION "1.1"
 
 static const char* TAG = "app";
 
@@ -920,7 +919,7 @@ static void keySettings(const KeyEvent& k) {
       snprintf(b, sizeof(b),
                "%s %s on %s\nModel TinyDecide %s, last pass %u ms (%d tok)\nNotes: %d in %d categories\n"
                "Storage: %s, %s of %s used\nClock: %s\nFree RAM %u KB (largest %u KB)",
-               APP_NAME, APP_VERSION, keys::boardName(), TD_MODEL_VARIANT, (unsigned)ai::lastMs(), ai::lastTokens(),
+               APP_NAME, APP_VERSION, keys::boardName(), ai::MODEL_VARIANT, (unsigned)ai::lastMs(), ai::lastTokens(),
                (int)notes.size(), (int)cats.size(), store::backendName(store::active()), u, t, clk::status(),
                (unsigned)(heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024),
                (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) / 1024));

@@ -1,0 +1,19 @@
+menu "TinyDecide"
+
+config TINYDECIDE_EMBED_MODEL
+    bool "Embed model.bin and vocab.bin in the app image"
+    default y
+    help
+        Puts the 6.2 MB model and its vocabulary inside the app image, so td::initEmbedded() works
+        and one flash write installs everything. The app partition must be about 6.5 MB larger than
+        the app itself. Turn it off to load the model from a data partition (td::initPartition) or
+        from your own pointer (td::init).
+
+config TINYDECIDE_MODEL_DIR
+    string "Folder with model.bin (relative to the project folder)"
+    default ""
+    depends on TINYDECIDE_EMBED_MODEL
+    help
+        Empty: model/ inside this component, then the Hugging Face repo root two folders up.
+
+endmenu

@@ -217,7 +217,12 @@ The routing seed run only reached 50%, so the model **preselects** a category an
   - Checklist counts show completed/total.
   - The storage label reads "On device" / "On SD".
   - Settings > Categories edits the name, prompt (hint), flags and order.
-- **Next:** a 2-token PIE kernel (one weight-row unpack for two tokens) to bring matmul under 1 s; and holding the canvas in 8-bit if the heap gets tight with many notes.
+- **Next:** holding the canvas in 8-bit if the heap gets tight with many notes.
+- **2026-10-10: v1.1, upstream engine.** `firmware/components/tinydecide/` is now the `esp32/tinydecide/` component of the TinyDecide repo (commit `aa745b7`), copied unchanged. It started as this engine and adds a 4-token PIE kernel with the tile loop in assembly, LayerNorm and quantisation on both cores, fc2 in 256-neuron groups, and a 64-byte-aligned model.
+  - API: `td::answer` with one `CHOICE` question replaces `td::choice`. `ai.cpp` passes `state_max = 40`, the old `STATE_MAX`, so notes keep the ~30-word limit and the same heap use. `K` stays 16, so `.learn.bin` caches still load.
+  - The tokenizer is the reference one for all of Unicode, not ASCII-only. `vocab.bin` changed format and moved into the component; `host/pack_model.mjs` is gone.
+  - Host parity (`host/engine_test.sh`, 63 cases): 0 token-id mismatches, max|dp| 0.016, 3 near-tie flips (the old engine: 0.015, 4 flips).
+  - On the device: **0.67 to 0.9 s** per suggestion at 40 to 53 tokens, down from 1.8 s. The smoke test passes. The image is 7.59 MB of the 7.80 MB slot.
 
 ## History: Pocket Inbox (superseded)
 - **2026-10-05: project skeleton.**
